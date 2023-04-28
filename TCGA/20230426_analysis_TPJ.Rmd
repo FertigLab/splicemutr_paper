@@ -1,0 +1,1675 @@
+---
+
+title: "analysis_Theron_08262021"
+author: "Theron Palmer"
+date: "04/26/2023"
+output:
+  html_document:
+    toc: yes
+    toc_float: yes
+    
+---
+
+# Analysis Pipeline
+
+On ZAPPA. recount3_tcga_juncs_prep.sh -> recount3_tcga_juncs.sh -> splicemutr_leafcutter.sh -> save_introns.sh -> cong_tcga_junc.R -> tcga_form_transcripts.sh -> process_peps.sh -> runMHCnuggets.sh -> process_percentile.sh -> create_genotypes.sh (TCGA_assign_imm.sh) -> TCGA_assign_imm_py.sh -> TCGA_combine_kmers.sh -> create_junc_expr.sh -> TCGA_gene_expr_per_sample.sh -> calc_gene_metric.sh
+
+create_TCGA_TMB_maf_summary.sh
+
+# Loading in necessary libraries
+
+```{r,echo=FALSE}
+
+library(dplyr)
+library(knitr)
+library(ggplot2)
+library(TCGAutils)
+library(maftools)
+library(ggpubr)
+library(stringr)
+library(readxl)
+library(ComplexHeatmap)
+library(recount3)
+library(DT)
+library(rstatix)
+library(ggrepel)
+library(ggprism)
+library(plotrix)
+library(grid)
+library(TCGAbiolinks)
+library(effectsize)
+
+```
+
+# Internal Functions
+
+```{r}
+
+new_path <- function(target, new_path){
+  return(sprintf("%s/%s",new_path,basename(target)))
+}
+
+graph_plot_SF3B1 <- function(combined_gene_metric_per_sample_all_small,max_SA){
+  
+    MUT_VALS<-length(which(combined_gene_metric_per_sample_all_small$SF3B1=="MUT"))
+    WT_VALS<-length(which(combined_gene_metric_per_sample_all_small$SF3B1=="WT"))
+    combined_gene_metric_per_sample_all_small$SF3B1 <- factor(combined_gene_metric_per_sample_all_small$SF3B1,levels=c("MUT","WT"))
+    
+    if (MUT_VALS>0 & WT_VALS>0){
+      
+      if (max_SA<0){
+        max_SA <- max(combined_gene_metric_per_sample_all_small$SA_PUR_div,na.rm=T)
+      }
+      wilcox_test_val <- compare_means(SA_PUR_div ~ SF3B1,
+                                       p.adjust.method = "BH",
+                                       data=combined_gene_metric_per_sample_all_small)
+      cohens_d<-calculate_cohens_d(wilcox_test_val,c(),"SF3B1",combined_gene_metric_per_sample_all_small)
+      wilcox_test_val$cohens_d <- format(round(cohens_d$cohens_d, 2), nsmall = 2)
+      
+      print(ggplot(combined_gene_metric_per_sample_all_small,aes(y=SA_PUR_div,x=SF3B1))+
+              geom_boxplot(fill="grey")+
+              # geom_jitter(color="black", size=0.4, alpha=0.9)+
+              stat_pvalue_manual(wilcox_test_val, 
+                                 y.position =
+                                   max_SA+
+                                   (max_SA*0.5),
+                                 label.size=9,
+                                 label = "{p.signif},d={cohens_d}")+
+              labs(title=cancer)+
+              ylab("splicing antigenicity")+
+              xlab("SF3B1")+
+              theme(axis.title.x=element_text(size=20),
+                    axis.title.y=element_text(size = 20),
+                    axis.text.y=element_text(size=20),
+                    axis.text.x=element_text(size=20),
+                    title=element_text(size=20))+
+              ylim(c(0,max_SA+
+                       (max_SA*0.8)))+
+              scale_x_discrete(labels = c(sprintf("MUT (n=%d)",MUT_VALS),sprintf("WT (n=%d)",WT_VALS))))
+
+    }
+}
+graph_plot_U2AF1 <- function(combined_gene_metric_per_sample_all_small){
+  
+    MUT_VALS<-length(which(combined_gene_metric_per_sample_all_small$U2AF1=="MUT"))
+    WT_VALS<-length(which(combined_gene_metric_per_sample_all_small$U2AF1=="WT"))
+    combined_gene_metric_per_sample_all_small$U2AF1 <- factor(combined_gene_metric_per_sample_all_small$U2AF1,levels=c("MUT","WT"))
+    
+    if (MUT_VALS>0 & WT_VALS>0){
+      
+      max_SA <- max(combined_gene_metric_per_sample_all_small$SA_PUR_div,na.rm=T)
+      wilcox_test_val <- compare_means(SA_PUR_div ~ U2AF1,
+                                       p.adjust.method = "BH",
+                                       data=combined_gene_metric_per_sample_all_small)
+      cohens_d<-calculate_cohens_d(wilcox_test_val,c(),"U2AF1",combined_gene_metric_per_sample_all_small)
+      wilcox_test_val$cohens_d <- format(round(cohens_d$cohens_d, 2), nsmall = 2)
+      
+      print(ggplot(combined_gene_metric_per_sample_all_small,aes(y=SA_PUR_div,x=U2AF1))+
+              geom_boxplot(fill="grey")+
+              # geom_jitter(color="black", size=0.4, alpha=0.9)+
+              stat_pvalue_manual(wilcox_test_val, 
+                                 y.position =
+                                   max_SA+
+                                   (max_SA*0.5),
+                                 label.size=9,
+                                 label = "{p.signif},d={cohens_d}")+
+              labs(title=cancer)+
+              ylab("splicing antigenicity")+
+              xlab("U2AF1")+
+              theme(axis.title.x=element_text(size=20),
+                    axis.title.y=element_text(size = 20),
+                    axis.text.y=element_text(size=20),
+                    axis.text.x=element_text(size=20),
+                    title=element_text(size=20))+
+              ylim(c(0,max_SA+
+                       (max_SA*0.8)))+
+              scale_x_discrete(labels = c(sprintf("MUT (n=%d)",MUT_VALS),sprintf("WT (n=%d)",WT_VALS))))
+
+    }
+}
+graph_plot_SRSF2 <- function(combined_gene_metric_per_sample_all_small){
+  
+    MUT_VALS<-length(which(combined_gene_metric_per_sample_all_small$SRSF2=="MUT"))
+    WT_VALS<-length(which(combined_gene_metric_per_sample_all_small$SRSF2=="WT"))
+    combined_gene_metric_per_sample_all_small$SRSF2 <- factor(combined_gene_metric_per_sample_all_small$SRSF2,levels=c("MUT","WT"))
+    
+    if (MUT_VALS>0 & WT_VALS>0){
+      
+      max_SA <- max(combined_gene_metric_per_sample_all_small$SA_PUR_div,na.rm=T)
+      wilcox_test_val <- compare_means(SA_PUR_div ~ SRSF2,
+                                       p.adjust.method = "BH",
+                                       data=combined_gene_metric_per_sample_all_small)
+      cohens_d<-calculate_cohens_d(wilcox_test_val,c(),"SRSF2",combined_gene_metric_per_sample_all_small)
+      wilcox_test_val$cohens_d <- format(round(cohens_d$cohens_d, 2), nsmall = 2)
+      
+      print(ggplot(combined_gene_metric_per_sample_all_small,aes(y=SA_PUR_div,x=SRSF2))+
+              geom_boxplot(fill="grey")+
+              # geom_jitter(color="black", size=0.4, alpha=0.9)+
+              stat_pvalue_manual(wilcox_test_val, 
+                                 y.position =
+                                   max_SA+
+                                   (max_SA*0.5),
+                                 label.size=9,
+                                 label = "{p.signif},d={cohens_d}")+
+              labs(title=cancer)+
+              ylab("splicing antigenicity")+
+              xlab("SRSF2")+
+              theme(axis.title.x=element_text(size=20),
+                    axis.title.y=element_text(size = 20),
+                    axis.text.y=element_text(size=20),
+                    axis.text.x=element_text(size=20),
+                    title=element_text(size=20))+
+              ylim(c(0,max_SA+
+                       (max_SA*0.8)))+
+              scale_x_discrete(labels = c(sprintf("MUT (n=%d)",MUT_VALS),sprintf("WT (n=%d)",WT_VALS))))
+
+    }
+}
+
+remove_factors <- function(d_frame,g_vector){
+  d_frame_filt <- d_frame
+  a<-vapply(g_vector,function(g_elem){
+    d_frame_filt[,g_elem]<<-unname(unlist(lapply(d_frame[,g_elem],as.character)))
+    return(T)
+  },logical(1))
+  return(d_frame_filt)
+}
+calculate_cohens_d <- function(p_vals,grouping_variables,comparison_term,input_data){
+  data_term <- unique(p_vals$.y.)
+  cohens_ds <- t(vapply(seq(nrow(p_vals)),function(row_val){
+    curr_group_vars <- p_vals[row_val,grouping_variables,drop=T]
+    groups <- c(p_vals[row_val,"group1",drop=T],p_vals[row_val,"group2",drop=T])
+    input_data_filt <- input_data
+    if (length(grouping_variables)>0){
+      for (i in seq(length(grouping_variables))){
+        input_data_filt <- input_data_filt[input_data_filt[,grouping_variables[i],drop=T]==curr_group_vars[i],]
+      }
+    }
+    input_data_filt <- input_data_filt %>% dplyr::filter(input_data_filt[,comparison_term,drop=T] %in% groups)
+    as.numeric(cohens_d(as.numeric(input_data_filt[,data_term,drop=T]) ~ input_data_filt[,comparison_term,drop=T],data=input_data_filt,iterations=1000))
+
+  },numeric(4)))
+  colnames(cohens_ds) <- c("cohens_d","CD_CI","CD_CI_low","CD_CI_high")
+  return(data.frame(cohens_ds))
+}
+
+```
+
+# Accumulating mutation data per sample only annotated
+
+## Preparing TCGA cibersort data [1]
+
+```{r}
+
+TCGA_cibersort_all <- readRDS("./input_data/TCGA.Kallisto.fullIDs.cibersort.relative.rds")
+TCGA_cibersort_all$barcode <- str_replace_all(TCGA_cibersort_all$SampleID,"[.]","-")
+TCGA_cibersort_all$sample_ID <- vapply(TCGAbarcode(TCGA_cibersort_all$barcode,sample=T),
+                                       function(val){substr(val,1,nchar(val)-1)},character(1))
+TCGA_cibersort_all$patient_ID <- TCGAbarcode(TCGA_cibersort_all$barcode)
+TCGA_cibersort_all <- TCGA_cibersort_all[as.numeric(TCGA_cibersort_all$P.value)<=0.05,]
+cibersort_cells <- c("SampleID","B.cells.naive","B.cells.memory","Plasma.cells",
+                     "T.cells.CD8","T.cells.CD4.naive","T.cells.CD4.memory.resting",
+                     "T.cells.CD4.memory.activated","T.cells.follicular.helper",
+                     "T.cells.regulatory..Tregs.","T.cells.gamma.delta","NK.cells.resting",
+                     "NK.cells.activated","Monocytes","Macrophages.M0","Macrophages.M1",
+                     "Macrophages.M2","Dendritic.cells.resting","Dendritic.cells.activated",
+                     "Mast.cells.resting","Mast.cells.activated","Eosinophils","Neutrophils","P.value","Correlation","RMSE",
+                     "barcode","sample_ID","patient_ID")
+actual_cibersort_cells <- c("B.cells.naive","B.cells.memory","Plasma.cells",
+                     "T.cells.CD8","T.cells.CD4.naive","T.cells.CD4.memory.resting",
+                     "T.cells.CD4.memory.activated","T.cells.follicular.helper",
+                     "T.cells.regulatory..Tregs.","T.cells.gamma.delta","NK.cells.resting",
+                     "NK.cells.activated","Monocytes","Macrophages.M0","Macrophages.M1",
+                     "Macrophages.M2","Dendritic.cells.resting","Dendritic.cells.activated",
+                     "Mast.cells.resting","Mast.cells.activated","Eosinophils","Neutrophils")
+
+```
+
+## Preparing non-silent mutation load [1]
+
+```{r}
+
+# contains sample id minus the last letter, or rather the vial code
+
+mutation_load_file <- "./input_data/mutation-load_updated.rds"
+mutation_load <- readRDS(mutation_load_file)
+colnames(mutation_load)<-c("cohort","patient_ID","sample_ID","silent_per_mb","non_silent_per_mb")
+
+TMB_vals <- data.frame(median_TMB = vapply(unique(mutation_load$cohort),
+                              function(cohort){median(mutation_load$non_silent_per_mb[mutation_load$cohort==cohort])},numeric(1)))
+TMB_vals <- TMB_vals[order(TMB_vals$median_TMB),,drop=F]
+mutation_load$cohort <- factor(mutation_load$cohort,levels=rownames(TMB_vals))
+
+# ggplot(mutation_load,aes(x=cohort,y=log10(non_silent_per_mb+1)))+
+#   geom_boxplot()+#geom_violin(alpha=0.2,fill="grey")+
+#   theme(axis.text.x = element_text(angle = 90))+
+#   ylab("log10(Non silent mutations per Mb)")+
+#   geom_hline(yintercept=log10(10))+
+#   xlab("TCGA Cohort")
+
+```
+
+## Preparing Leuokocyte Fraction Data [1]
+
+```{r}
+
+leukocyte_fraction_file <- "./input_data/TCGA_all_leuk_estimate.masked.20170107.rds"
+leukocyte_fraction <- readRDS(leukocyte_fraction_file)
+colnames(leukocyte_fraction)<-c("cohort","barcode","fraction")
+leukocyte_fraction$patient_ID <- TCGAbarcode(leukocyte_fraction$barcode)
+leukocyte_fraction$sample_ID <- vapply(TCGAbarcode(leukocyte_fraction$barcode,sample=T),
+                                       function(val){substr(val,1,nchar(val)-1)},character(1))
+
+leuk_vals <- data.frame(median_LF = vapply(unique(leukocyte_fraction$cohort),
+                              function(cohort){median(leukocyte_fraction$fraction[leukocyte_fraction$cohort==cohort])},numeric(1)))
+leuk_vals <- leuk_vals[order(leuk_vals$median_LF),,drop=F]
+leukocyte_fraction$cohort <- factor(leukocyte_fraction$cohort,levels=rownames(leuk_vals))
+
+# ggplot(leukocyte_fraction,aes(x=cohort,y=fraction))+
+#   geom_boxplot()+#geom_violin(alpha=0.2,fill="grey")+
+#   theme(axis.text.x = element_text(angle = 90))+
+#   xlab("TCGA Cohort")+
+#   ylab("Leukocyte Fraction")
+
+```
+
+## Preparing Immunogenic SNV Data [1]
+
+```{r}
+
+binding_snv_file <- "./input_data/TCGA_pMHC_SNV_sampleSummary_MC3_v0.2.8.CONTROLLED_170404.rds"
+binding_snv <- readRDS(binding_snv_file)
+binding_snv$patient_ID <- TCGAbarcode(binding_snv$barcode)
+binding_snv$sample_ID <- vapply(TCGAbarcode(binding_snv$barcode,sample=T),
+                                       function(val){substr(val,1,nchar(val)-1)},character(1))
+
+
+```
+
+## Preparing TCR clonality data [1]
+
+```{r}
+
+tcr_clonality_file <-  "./input_data/mitcr_sampleStatistics_20160714.rds"
+tcr_clonality <-  readRDS(tcr_clonality_file)
+tcr_clonality$sample_ID <- vapply(TCGAbarcode(tcr_clonality$AliquotBarcode,sample=T),
+                                       function(val){substr(val,1,nchar(val)-1)},character(1))
+
+tcr_clonality_vals <- data.frame(median_tcr = vapply(unique(tcr_clonality$Study),
+                              function(Study){median(tcr_clonality$numClones[tcr_clonality$Study==Study])},numeric(1)))
+tcr_clonality_vals <- tcr_clonality_vals[order(tcr_clonality_vals$median_tcr),,drop=F]
+tcr_clonality$Study <- factor(tcr_clonality$Study,levels=rownames(tcr_clonality_vals))
+
+# ggplot(tcr_clonality,aes(x=Study,y=log10(numClones+1)))+
+#   geom_boxplot()+#geom_violin(alpha=0.2,fill="grey")+
+#   theme(axis.text.x = element_text(angle = 90))+
+#   xlab("TCGA Cohort")+
+#   ylab("log10(Number of TCR Clones)")
+
+```
+
+## Preparing viral data [1]
+
+```{r}
+
+viral_expression_file <-  "./input_data/viral.rds"
+viral_expression <-  readRDS(viral_expression_file)
+viral_expression <- viral_expression[viral_expression$HPV>1 & viral_expression$Study=="HNSC",]
+viral_expression$sample_ID <- vapply(TCGAbarcode(viral_expression$AliquotBarcode,sample=T),
+                                       function(val){substr(val,1,nchar(val)-1)},character(1))
+
+```
+
+## Preparing the tumor purity information
+
+```{r}
+
+tumor_purity <- readRDS("./input_data/TCGA_mastercalls.abs_tables_JSedit.fixed.rds")
+tumor_purity_filt <- tumor_purity %>% dplyr::filter(solution=="new")
+tumor_purity_filt$sample_ID <- vapply(TCGAbarcode(tumor_purity_filt$sample,sample=T),
+                                       function(val){substr(val,1,nchar(val)-1)},character(1))
+ggplot(tumor_purity,aes(x=purity))+geom_histogram()
+print(length(which(tumor_purity$purity<=0.5))/nrow(tumor_purity))
+print(length(which(tumor_purity$purity<=0.6))/nrow(tumor_purity))
+print(length(which(tumor_purity$purity<=0.7))/nrow(tumor_purity))
+print(length(which(tumor_purity$purity<=0.8))/nrow(tumor_purity))
+
+```
+
+## Preparing splicemutr data
+
+```{r,eval=F}
+
+# this really only needs to be run once on your system
+
+diff_sigs <- c()
+tumor_data_file <- "./input_data/TCGA_cancers/JHPCE/cancer_dirs_filt.txt"
+tumor_data <- read.table(tumor_data_file)
+cancers <- c(tumor_data$V1)
+
+splicing_antigenicity_tum <- data.frame(cancers)
+
+TMB_all_cor <- data.frame(cancers)
+rownames(TMB_all_cor) <- cancers
+TMB_all_pvals <- data.frame(cancers)
+rownames(TMB_all_pvals) <- cancers
+TMB_all_cor_norm <- data.frame(cancers)
+rownames(TMB_all_cor_norm) <- cancers
+TMB_all_pvals_norm <- data.frame(cancers)
+rownames(TMB_all_pvals_norm) <- cancers
+DA_all_cor <- data.frame(cancers)
+rownames(DA_all_cor) <- cancers
+DA_all_pvals <- data.frame(cancers)
+rownames(DA_all_pvals) <- cancers
+cibersort_all_pvals <- data.frame(cancers)
+rownames(cibersort_all_pvals)<-cancers
+cibersort_all_cor <- data.frame(cancers)
+rownames(cibersort_all_cor)<-cancers
+cibersort_all_pvals_norm <- data.frame(cancers)
+rownames(cibersort_all_pvals_norm)<-cancers
+cibersort_all_cor_norm <- data.frame(cancers)
+rownames(cibersort_all_cor_norm)<-cancers
+all_genes <- c()
+
+TCGA_ROOT_DIR="./input_data/TCGA_cancers"
+dups <- c()
+for (i in seq(length(cancers))){
+  cancer <- cancers[i]
+  print(sprintf("%s: %d out of %d",cancer,i,length(cancers)))
+  tumor_geno <- read.table(sprintf("%s/%s/JHPCE/%s_genotypes_specific.txt",TCGA_ROOT_DIR,cancer,cancer),header=T)
+  tumor_geno$sample_ID <- vapply(TCGAbarcode(tumor_geno$aliquot_id,sample=T),
+                                       function(val){substr(val,1,nchar(val)-1)},character(1))
+  tumor_geno$patient_ID <- TCGAbarcode(tumor_geno$aliquot_id)
+  normal_samples <- tumor_geno$external_id[tumor_geno$type=="N"]
+  tumor_samples <- tumor_geno$external_id[tumor_geno$type=="T"]
+
+  tumor_geno <- tumor_geno %>% dplyr::filter(type=="T")
+  tumor_geno <- tumor_geno[complete.cases(tumor_geno),]
+
+  # creating the splicing antigenicity for tumor splicing events
+  splice_mut_file <- sprintf("%s/%s/JHPCE/GENE_METRIC_CP/SA_tumor.txt",TCGA_ROOT_DIR,cancer)
+  splice_mut_files <- read.table(splice_mut_file)
+  for (j in seq(length(splice_mut_files$V1))){ # splicing antigenicity
+    if (j == 1){
+      combined_gene_metric_tumor <- readRDS(new_path(splice_mut_files$V1[j],
+                                                     sprintf("%s/%s/JHPCE/GENE_METRIC_CP",TCGA_ROOT_DIR,cancer)))
+    } else {
+      a<-readRDS(new_path(splice_mut_files$V1[j],
+                          sprintf("%s/%s/JHPCE/GENE_METRIC_CP",TCGA_ROOT_DIR,cancer)))
+      combined_gene_metric_tumor <- cbind(combined_gene_metric_tumor,a)
+    }
+  }
+  CP_file <- str_replace(splice_mut_files$V1[1],"gene_metric_mean_len_norm_no_gene_norm_tumor","coding_potential_LGC_tumor")
+  coding_potential_LGC_tumor <- readRDS(new_path(CP_file,sprintf("%s/%s/JHPCE/GENE_METRIC_CP",TCGA_ROOT_DIR,cancer)))
+  HIGH_CP_GENES <- rownames(coding_potential_LGC_tumor)[coding_potential_LGC_tumor$coding_potential_LGC>0]
+
+  # creating the splicing antigenicity for normal splicing events
+  splice_mut_file <- sprintf("%s/%s/JHPCE/GENE_METRIC_CP/SA_normal.txt",TCGA_ROOT_DIR,cancer)
+  splice_mut_files <- read.table(splice_mut_file)
+  for (j in seq(length(splice_mut_files$V1))){ 
+    if (j == 1){
+      combined_gene_metric_normal <- readRDS(new_path(splice_mut_files$V1[j],
+                                                      sprintf("%s/%s/JHPCE/GENE_METRIC_CP",TCGA_ROOT_DIR,cancer)))
+    } else {
+      a<-readRDS(new_path(splice_mut_files$V1[j],
+                          sprintf("%s/%s/JHPCE/GENE_METRIC_CP",TCGA_ROOT_DIR,cancer)))
+      combined_gene_metric_normal <- cbind(combined_gene_metric_normal,a)
+    }
+  }
+  
+  combined_gene_metric_tumor <- combined_gene_metric_tumor[,tumor_samples[tumor_samples %in% colnames(combined_gene_metric_tumor)]]
+  combined_gene_metric_normal <- combined_gene_metric_normal[,normal_samples[normal_samples %in% colnames(combined_gene_metric_normal)]]
+  conglomerate_genes <- unique(rownames(combined_gene_metric_tumor),rownames(combined_gene_metric_normal))
+  
+  normal_all <- combined_gene_metric_normal[conglomerate_genes,
+                                            normal_samples[normal_samples %in% colnames(combined_gene_metric_normal)]]
+  normal_all[is.na(normal_all)]<-0
+  normal_all_vec <- c()
+  normal_filler<-vapply(seq(ncol(normal_all)),function(col_val){
+    normal_all_vec <<- c(normal_all_vec,normal_all[,col_val])
+    return(T)
+  },logical(1))
+  normal_all <- data.frame(SA=normal_all_vec,gene=rep(conglomerate_genes,ncol(normal_all)))
+normal_all$type<-"normal"
+
+  tumor_all <- combined_gene_metric_tumor[conglomerate_genes,tumor_samples[tumor_samples %in% colnames(combined_gene_metric_tumor)]]
+  tumor_all[is.na(tumor_all)]<-0
+  tumor_all_vec <- c()
+  tumor_filler<-vapply(seq(ncol(tumor_all)),function(col_val){
+    tumor_all_vec <<- c(tumor_all_vec,tumor_all[,col_val])
+    return(T)
+  },logical(1))
+  tumor_all <- data.frame(SA=tumor_all_vec,gene=rep(conglomerate_genes,ncol(tumor_all)))
+tumor_all$type<-"tumor"
+
+  tumor_normal_all <- rbind(tumor_all,normal_all)
+  wilcox_test_val_all <- compare_means(SA ~ type, p.adjust.method = "BH", data=tumor_normal_all,group.by = c("gene"))
+  diff_sig_genes <- wilcox_test_val_all$gene[wilcox_test_val_all$p.adj<0.05]
+  diff_sigs <- c(diff_sigs,length(diff_sig_genes))
+  conglomerate_genes <- intersect(conglomerate_genes,diff_sig_genes)
+  
+  combined_gene_metric_tumor <- combined_gene_metric_tumor[conglomerate_genes,]
+  combined_gene_metric_tumor[is.na(combined_gene_metric_tumor)]<-0
+  combined_gene_metric_normal <- combined_gene_metric_normal[conglomerate_genes,]
+  combined_gene_metric_normal[is.na(combined_gene_metric_normal)]<-0
+  
+  combined_gene_metric_tumor_mean <- apply(combined_gene_metric_tumor,1,mean,na.rm=T)
+  combined_gene_metric_normal_mean <- apply(combined_gene_metric_normal,1,mean,na.rm=T)
+
+  #----------------------------------------------------# 
+  # this is stupid and can't be used for actual analysis
+  
+  combined_gene_metric_DA <- data.frame(DA=(combined_gene_metric_tumor_mean)/(combined_gene_metric_normal_mean),
+                                        DA_inv=(combined_gene_metric_normal_mean)/(combined_gene_metric_tumor_mean))
+  
+  combined_gene_metric_DA$cancer <- cancer
+  combined_gene_metric_DA$DA[combined_gene_metric_DA$DA==Inf & !is.na(combined_gene_metric_DA$DA)]<-sample(combined_gene_metric_DA$DA[combined_gene_metric_DA$DA!=Inf & !is.na(combined_gene_metric_DA$DA) & combined_gene_metric_DA$DA > 1],length(which(combined_gene_metric_DA$DA==Inf & !is.na(combined_gene_metric_DA$DA))),replace=T)
+  
+  combined_gene_metric_DA$DA[combined_gene_metric_DA$DA_inv==Inf & !is.na(combined_gene_metric_DA$DA_inv)]<-sample(combined_gene_metric_DA$DA[combined_gene_metric_DA$DA_inv!=Inf & !is.na(combined_gene_metric_DA$DA_inv) & combined_gene_metric_DA$DA_inv > 1],length(which(combined_gene_metric_DA$DA_inv==Inf & !is.na(combined_gene_metric_DA$DA_inv))),replace=T)
+  combined_gene_metric_DA$genes <- rownames(combined_gene_metric_DA)
+  
+  #----------------------------------------------------# 
+
+  if (i == 1){
+    combined_gene_metric_DA_all <- combined_gene_metric_DA
+    combined_gene_metric_tumor_all_genes <- data.frame(SA=unname(combined_gene_metric_tumor_mean),
+                                                       cancer=rep(cancer,length(combined_gene_metric_tumor_mean)),
+                                                       gene=conglomerate_genes)
+    combined_gene_metric_tumor_all_samples <- data.frame(SA = apply(combined_gene_metric_tumor,2,mean),
+                                                         cancer=rep(cancer,ncol(combined_gene_metric_tumor)),
+                                                         type=rep("tumor",ncol(combined_gene_metric_tumor)),
+                                                         sample=colnames(combined_gene_metric_tumor))
+    combined_gene_metric_tumor_all_samples$sample_ID <- vapply(combined_gene_metric_tumor_all_samples$sample,
+                                                                function(sample){
+                                                                  tumor_geno$sample_ID[which(tumor_geno$external_id == sample)[1]]
+                                                                  },character(1))
+    
+    combined_gene_metric_normal_all_genes <- data.frame(SA=unname(combined_gene_metric_normal_mean),
+                                                        cancer=rep(cancer,length(combined_gene_metric_normal_mean)),
+                                                        gene=conglomerate_genes)
+    combined_gene_metric_normal_all_samples <- data.frame(SA = apply(combined_gene_metric_normal,2,mean),
+                                                     cancer=rep(cancer,ncol(combined_gene_metric_normal)),
+                                                     type=rep("normal",ncol(combined_gene_metric_normal)),
+                                                         sample=colnames(combined_gene_metric_normal))
+    combined_gene_metric_normal_all_samples$sample_ID <- vapply(combined_gene_metric_normal_all_samples$sample,
+                                                                function(sample){
+                                                                  tumor_geno$sample_ID[which(tumor_geno$external_id == sample)[1]]
+                                                                  },character(1))
+    
+  } else {
+    combined_gene_metric_DA_all_fill <- combined_gene_metric_DA
+    combined_gene_metric_tumor_all_genes_fill <- data.frame(SA=unname(combined_gene_metric_tumor_mean),
+                                                       cancer=rep(cancer,length(combined_gene_metric_tumor_mean)),
+                                                       gene=conglomerate_genes)
+    combined_gene_metric_tumor_all_samples_fill <- data.frame(SA = apply(combined_gene_metric_tumor,2,mean),
+                                                         cancer=rep(cancer,ncol(combined_gene_metric_tumor)),
+                                                         type=rep("tumor",ncol(combined_gene_metric_tumor)),
+                                                         sample=colnames(combined_gene_metric_tumor))
+    combined_gene_metric_tumor_all_samples_fill$sample_ID <- vapply(combined_gene_metric_tumor_all_samples_fill$sample,
+                                                                function(sample){
+                                                                  tumor_geno$sample_ID[which(tumor_geno$external_id == sample)[1]]
+                                                                  },character(1))
+    combined_gene_metric_normal_all_genes_fill <- data.frame(SA=unname(combined_gene_metric_normal_mean),
+                                                        cancer=rep(cancer,length(combined_gene_metric_normal_mean)),
+                                                        gene=conglomerate_genes)
+    combined_gene_metric_normal_all_samples_fill <- data.frame(SA = apply(combined_gene_metric_normal,2,mean),
+                                                     cancer=rep(cancer,ncol(combined_gene_metric_normal)),
+                                                     type=rep("normal",ncol(combined_gene_metric_normal)),
+                                                     sample=colnames(combined_gene_metric_normal))
+    combined_gene_metric_normal_all_samples_fill$sample_ID <- vapply(combined_gene_metric_normal_all_samples_fill$sample,
+                                                            function(sample){
+                                                              tumor_geno$sample_ID[which(tumor_geno$external_id == sample)[1]]
+                                                              },character(1))
+    
+    combined_gene_metric_DA_all <- rbind(combined_gene_metric_DA_all,combined_gene_metric_DA_all_fill)
+    combined_gene_metric_tumor_all_genes <- rbind(combined_gene_metric_tumor_all_genes,combined_gene_metric_tumor_all_genes_fill)
+    combined_gene_metric_tumor_all_samples <- rbind(combined_gene_metric_tumor_all_samples,combined_gene_metric_tumor_all_samples_fill)
+    combined_gene_metric_normal_all_genes <- rbind(combined_gene_metric_normal_all_genes,combined_gene_metric_normal_all_genes_fill)
+    combined_gene_metric_normal_all_samples <- rbind(combined_gene_metric_normal_all_samples,combined_gene_metric_normal_all_samples_fill)
+    
+  }
+
+  high_DA_genes <-  combined_gene_metric_DA[combined_gene_metric_DA$DA>0,"genes"]
+  high_DA_genes <- high_DA_genes[!is.na(high_DA_genes)]
+  HIGH_DA_HIGH_CP_genes <- intersect(intersect(high_DA_genes,HIGH_CP_GENES),diff_sig_genes)
+  combined_gene_metric_tumor_HIGH_DA_HIGH_CP_diff_sig<-combined_gene_metric_tumor[HIGH_DA_HIGH_CP_genes,]
+
+  colnames_combined_gene_metric <-colnames(combined_gene_metric_tumor_HIGH_DA_HIGH_CP_diff_sig)
+  colnames(combined_gene_metric_tumor_HIGH_DA_HIGH_CP_diff_sig) <- vapply(colnames_combined_gene_metric,function(col_name){
+    tumor_geno$sample_ID[which(tumor_geno$external_id == col_name)[1]]
+  },character(1))
+  combined_gene_metric_barcode <- vapply(colnames_combined_gene_metric,function(col_name){
+    tumor_geno$aliquot_id[which(tumor_geno$external_id == col_name)[1]]
+  },character(1))
+
+  mutation_load_small <- mutation_load %>% dplyr::filter(sample_ID %in% colnames(combined_gene_metric_tumor_HIGH_DA_HIGH_CP_diff_sig))
+  leukocyte_fraction_small <- leukocyte_fraction %>% dplyr::filter(sample_ID %in% colnames(combined_gene_metric_tumor_HIGH_DA_HIGH_CP_diff_sig))
+  binding_snv_small <- binding_snv %>% dplyr::filter(sample_ID %in% colnames(combined_gene_metric_tumor_HIGH_DA_HIGH_CP_diff_sig))
+  tcr_clonality_small <- tcr_clonality %>% dplyr::filter(sample_ID %in% colnames(combined_gene_metric_tumor_HIGH_DA_HIGH_CP_diff_sig))
+  TCGA_cibersort_small <- TCGA_cibersort_all %>% dplyr::filter(sample_ID %in% colnames(combined_gene_metric_tumor_HIGH_DA_HIGH_CP_diff_sig))
+
+  combined_gene_metric_per_sample<-data.frame(sample_ID=colnames(combined_gene_metric_tumor_HIGH_DA_HIGH_CP_diff_sig),
+                                              barcode=combined_gene_metric_barcode)
+  combined_gene_metric_per_sample$splicing_antigenicity <- vapply(seq(ncol(combined_gene_metric_tumor_HIGH_DA_HIGH_CP_diff_sig)),
+                                               function(col_val){mean(as.numeric(combined_gene_metric_tumor_HIGH_DA_HIGH_CP_diff_sig[,col_val]),
+                                                                      na.rm=T)},numeric(1))
+  # combined_gene_metric_per_sample$splicing_antigenicity_max <- vapply(seq(ncol(combined_gene_metric_tumor_HIGH_DA_HIGH_CP_diff_sig)),
+  #                                            function(col_val){max(as.numeric(combined_gene_metric_tumor_HIGH_DA_HIGH_CP_diff_sig[,col_val]),
+  #                                                                   na.rm=T)},numeric(1))
+  # combined_gene_metric_per_sample$splicing_antigenicity_median <- vapply(seq(ncol(combined_gene_metric_tumor_HIGH_DA_HIGH_CP_diff_sig)),
+  #                                            function(col_val){median(as.numeric(combined_gene_metric_tumor_HIGH_DA_HIGH_CP_diff_sig[,col_val]),
+  #                                                                   na.rm=T)},numeric(1))
+  
+  # I need to handle duplicate samples
+  # print("mutation_load")
+  combined_gene_metric_per_sample$non_silent_mutations_per_mb <- unlist(lapply(combined_gene_metric_per_sample$sample_ID,function(ID){
+    a<-which(mutation_load_small$sample_ID==ID)
+    if (length(a)==1){
+      return(mutation_load_small$non_silent_per_mb[a])
+    } else if (length(a)>1){
+      dups<<-c(dups,ID)
+      return(mutation_load_small$non_silent_per_mb[a[1]])
+    } else {
+      return(NA)
+    }
+  }))
+  # print("leukocyte_fraction")
+  combined_gene_metric_per_sample$leukocyte_fraction <- unlist(lapply(seq(length(combined_gene_metric_per_sample$sample_ID)),function(ID_num){
+    ID<-combined_gene_metric_per_sample$sample_ID[ID_num]
+    barcode<-combined_gene_metric_per_sample$barcode[ID_num]
+    a<-which(leukocyte_fraction_small$sample_ID==ID)
+    if (length(a)==1){
+      return(leukocyte_fraction_small$fraction[a])
+    } else if (length(a)>1){
+      aa<-which(leukocyte_fraction$barcode==barcode)
+      if (length(aa)==1){
+        return(leukocyte_fraction_small$fraction[aa]) 
+      } else if (length(aa)>1){
+        dups<<-c(dups,ID)
+        return(leukocyte_fraction_small$fraction[aa[1]])
+      } else {
+        return(NA)
+      }
+    } else {
+      return(NA)
+    }
+  }))
+  # print("numberOfImmunogenicMutation")
+  combined_gene_metric_per_sample$numberOfImmunogenicMutation <- unlist(lapply(seq(length(combined_gene_metric_per_sample$sample_ID)),function(ID_num){
+    ID<-combined_gene_metric_per_sample$sample_ID[ID_num]
+    barcode<-combined_gene_metric_per_sample$barcode[ID_num]
+    a<-which(binding_snv_small$sample_ID==ID)
+    if (length(a)==1){
+      return(binding_snv_small$numberOfImmunogenicMutation[a])
+    } else if (length(a)>1){
+      aa<-which(binding_snv_small$barcode==barcode)
+      if (length(aa)==1){
+        return(binding_snv_small$numberOfImmunogenicMutation[aa]) 
+      } else if (length(aa)>1){
+        dups<<-c(dups,ID)
+        return(binding_snv_small$numberOfImmunogenicMutation[aa[1]])
+      } else {
+        return(NA)
+      }
+    } else  {
+      return(NA)
+    }
+  }))
+
+  # print("numClones")
+  combined_gene_metric_per_sample$numClones <- unlist(lapply(seq(length(combined_gene_metric_per_sample$sample_ID)),function(ID_num){
+    ID<-combined_gene_metric_per_sample$sample_ID[ID_num]
+    barcode<-combined_gene_metric_per_sample$barcode[ID_num]
+    a<-which(tcr_clonality$sample_ID==ID)
+    if (length(a)==1){
+      return(tcr_clonality$numClones[a])
+    } else if (length(a)>1){
+      aa<-which(tcr_clonality$AliquotBarcode==barcode)
+      if (length(aa)==1){
+        return(tcr_clonality$numClones[aa]) 
+      } else if (length(aa)>1){
+        dups<<-c(dups,ID)
+        return(tcr_clonality$numClones[aa[1]])
+      } else {
+        return(NA)
+      }
+    } else {
+      return(NA)
+    }
+  }))
+  combined_gene_metric_per_sample$splicing_antigenicity_norm <- combined_gene_metric_per_sample$splicing_antigenicity/max(combined_gene_metric_per_sample$splicing_antigenicity)
+  combined_gene_metric_per_sample$cancer <- cancer
+  colnames(combined_gene_metric_per_sample) <- c("sample_ID","barcode","splicing_antigenicity","non_silent_mutations_per_mb",
+                                                 "leukocyte_fraction","numberOfImmunogenicMutation",
+                                                 "num_TCR_Clones","splicing_antigenicity_norm","cancer")
+  combined_gene_metric_per_sample <- combined_gene_metric_per_sample[!(combined_gene_metric_per_sample$sample_ID %in% dups),]
+  combined_gene_metric_per_sample$TMB_TYPE <- "LOW"
+  combined_gene_metric_per_sample$TMB_TYPE <- unlist(lapply(combined_gene_metric_per_sample$non_silent_mutations_per_mb,function(val){
+    if (is.na(val)){
+      return(NA)
+    } else if(val>=10){
+      return("TMB HIGH")
+    } else {
+      return("TMB LOW")
+    }}))
+  
+  tumor_purity_estimate <- vapply(combined_gene_metric_per_sample$sample_ID,function(samp){
+    a<-which(tumor_purity_filt$sample_ID==samp)
+    if(length(a)==0){
+      return(NA)
+    } else {
+      return(tumor_purity_filt[a[1],"purity"])
+    }
+  },numeric(1))
+  combined_gene_metric_per_sample$purity=tumor_purity_estimate
+  combined_gene_metric_per_sample$SA_PUR_div <- combined_gene_metric_per_sample$splicing_antigenicity/combined_gene_metric_per_sample$purity
+
+  # print("cibersort_per_samp")
+  cibersort_per_samp <- lapply(seq(length(combined_gene_metric_per_sample$sample_ID)),
+                             function(samp_num){
+                               samp<-TCGA_cibersort_small$sample_ID[samp_num]
+                               barcode <- TCGA_cibersort_small$barcode[samp_num]
+                               a<-which(TCGA_cibersort_small$sample_ID==samp)
+                               if (length(a)==1){
+                                 return(TCGA_cibersort_small[a,cibersort_cells,drop=F])
+                               } else if (length(a)>1){
+                                 aa<-which(TCGA_cibersort_small$barcode==barcode)
+                                 if (length(aa)==1){
+                                   return(TCGA_cibersort_small[aa,cibersort_cells,drop=F])
+                                 } else if (length(aa)>1){
+                                   dups<<-c(dups,samp)
+                                   return(TCGA_cibersort_small[aa[1],cibersort_cells,drop=F])
+                                 } else {
+                                   return(NA)
+                                 }
+                               } else {
+                                a<-data.frame(t(rep(NA,length(cibersort_cells))))
+                                colnames(a)<-cibersort_cells
+                                return(a)
+                              }
+                             })
+  cibersort_per_samp_df<-cibersort_per_samp[[1]]
+  for (k in seq(2,length(cibersort_per_samp))){
+    cibersort_per_samp_df <- rbind(cibersort_per_samp_df,cibersort_per_samp[[k]])
+  }
+  cibersort_per_samp_df <- cibersort_per_samp_df[complete.cases(cibersort_per_samp_df),]
+  
+  cibersort_cols_to_add <- c("splicing_antigenicity","splicing_antigenicity_norm","SA_PUR_div","purity","non_silent_mutations_per_mb","leukocyte_fraction",
+                           "numberOfImmunogenicMutation","num_TCR_Clones",
+                           "cancer")
+  cibersort_per_samp_df_cols <- colnames(cibersort_per_samp_df)
+  # print("cibersort_per_samp_df")
+  cibersort_per_samp_df <- cbind(cibersort_per_samp_df,as.data.frame(matrix(unlist(lapply(seq(length(cibersort_per_samp_df$sample_ID)),function(ID_num){
+                             ID <- cibersort_per_samp_df$sample_ID[ID_num]
+                             barcode <- cibersort_per_samp_df$barcode[ID_num]
+                             a<-which(combined_gene_metric_per_sample$sample_ID==ID)
+                             if (length(a)==1){
+                               return(as.character(combined_gene_metric_per_sample[a,cibersort_cols_to_add]))
+                             } else if (length(a)>1){
+                               aa<-which(combined_gene_metric_per_sample$barcode==barcode)
+                               if (length(aa)==1){
+                                 return(combined_gene_metric_per_sample[aa,cibersort_cols_to_add,drop=F])
+                               } else if (length(aa)>1){
+                                 dups<<-c(dups,ID)
+                                 return(combined_gene_metric_per_sample[aa[1],cibersort_cols_to_add,drop=F])
+                               } else {
+                                 return(rep(NA,length(cibersort_cols_to_add)))
+                               }
+                             } else {
+                               return(rep(NA,length(cibersort_cols_to_add)))
+                             }
+  })),byrow=T,nrow=nrow(cibersort_per_samp_df))))
+  colnames(cibersort_per_samp_df) <- c(cibersort_per_samp_df_cols,cibersort_cols_to_add)
+  cibersort_per_samp_df <- cibersort_per_samp_df[!(cibersort_per_samp_df$SampleID %in% dups),]
+  
+  a<-cor.test(combined_gene_metric_per_sample$splicing_antigenicity,log10(combined_gene_metric_per_sample$non_silent_mutations_per_mb+1),method="kendall")
+  TMB_all_cor[cancer,"SA_vs_TMB_cor"]<-a$estimate
+  TMB_all_pvals[cancer,"SA_vs_TMB_pval"]<-a$p.value
+  a<-cor.test(combined_gene_metric_per_sample$SA_PUR_div,log10(combined_gene_metric_per_sample$non_silent_mutations_per_mb+1),method="kendall")
+  TMB_all_cor_norm[cancer,"SA_vs_TMB_cor"]<-a$estimate
+  TMB_all_pvals_norm[cancer,"SA_vs_TMB_pval"]<-a$p.value
+
+  a<-cor.test(combined_gene_metric_per_sample$splicing_antigenicity,combined_gene_metric_per_sample$leukocyte_fraction,method="kendall")
+  TMB_all_cor[cancer,"SA_vs_leuk_frac_cor"]<-a$estimate
+  TMB_all_pvals[cancer,"SA_vs_leuk_frac_pval"]<-a$p.value
+  a<-cor.test(combined_gene_metric_per_sample$SA_PUR_div,combined_gene_metric_per_sample$leukocyte_fraction,method="kendall")
+  TMB_all_cor_norm[cancer,"SA_vs_leuk_frac_cor"]<-a$estimate
+  TMB_all_pvals_norm[cancer,"SA_vs_leuk_frac_pval"]<-a$p.value
+  
+  a<-cor.test(combined_gene_metric_per_sample$splicing_antigenicity,log10(combined_gene_metric_per_sample$numberOfImmunogenicMutation+1),method="kendall")
+  TMB_all_cor[cancer,"SA_vs_numImmMut_cor"]<-a$estimate
+  TMB_all_pvals[cancer,"SA_vs_numImmMut_pval"]<-a$p.value
+  a<-cor.test(combined_gene_metric_per_sample$SA_PUR_div,log10(combined_gene_metric_per_sample$numberOfImmunogenicMutation+1),method="kendall")
+  TMB_all_cor_norm[cancer,"SA_vs_numImmMut_cor"]<-a$estimate
+  TMB_all_pvals_norm[cancer,"SA_vs_numImmMut_pval"]<-a$p.value
+  
+  a<-cor.test(combined_gene_metric_per_sample$splicing_antigenicity,log2(combined_gene_metric_per_sample$num_TCR_Clones+1),method="kendall")
+  TMB_all_cor[cancer,"SA_vs_num_TCR_Clones_cor"]<-a$estimate
+  TMB_all_pvals[cancer,"SA_vs_num_TCR_Clones_pval"]<-a$p.value
+  a<-cor.test(combined_gene_metric_per_sample$SA_PUR_div,log2(combined_gene_metric_per_sample$num_TCR_Clones+1),method="kendall")
+  TMB_all_cor_norm[cancer,"SA_vs_num_TCR_Clones_cor"]<-a$estimate
+  TMB_all_pvals_norm[cancer,"SA_vs_num_TCR_Clones_pval"]<-a$p.value
+  
+  a<-cor.test(log10(combined_gene_metric_per_sample$numberOfImmunogenicMutation+1),log10(combined_gene_metric_per_sample$non_silent_mutations_per_mb+1),method="kendall")
+  TMB_all_cor[cancer,"numImmMut_vs_TMB_cor"]<-a$estimate
+  TMB_all_pvals[cancer,"numImmMut_vs_TMB_pval"]<-a$p.value
+  a<-cor.test(log10(combined_gene_metric_per_sample$numberOfImmunogenicMutation+1),log10(combined_gene_metric_per_sample$non_silent_mutations_per_mb+1),method="kendall")
+  TMB_all_cor_norm[cancer,"numImmMut_vs_TMB_cor"]<-a$estimate
+  TMB_all_pvals_norm[cancer,"numImmMut_vs_TMB_pval"]<-a$p.value 
+  
+  for (cell in actual_cibersort_cells){
+    a<-cor.test(as.numeric(cibersort_per_samp_df$splicing_antigenicity),as.numeric(cibersort_per_samp_df[,cell]),method="kendall")
+    cibersort_all_cor[cancer,sprintf("%s",cell)]<-as.numeric(a$estimate)
+    cibersort_all_pvals[cancer,sprintf("%s",cell)]<-as.numeric(a$p.value)
+    a<-cor.test(as.numeric(cibersort_per_samp_df$SA_PUR_div),as.numeric(cibersort_per_samp_df[,cell]),method="kendall")
+    cibersort_all_cor_norm[cancer,sprintf("%s",cell)]<-as.numeric(a$estimate)
+    cibersort_all_pvals_norm[cancer,sprintf("%s",cell)]<-as.numeric(a$p.value)
+  }
+  
+  if (i == 1){
+    cibersort_per_samp_df_all <- cibersort_per_samp_df
+  } else {
+    cibersort_per_samp_df_all <- rbind(cibersort_per_samp_df_all,cibersort_per_samp_df)
+  }
+  
+    if (i == 1){
+    combined_gene_metric_per_sample_all <- combined_gene_metric_per_sample
+  } else {
+    combined_gene_metric_per_sample_all <- rbind(combined_gene_metric_per_sample_all,combined_gene_metric_per_sample)
+  }
+  print("-------------------------------------------------------")
+}
+
+saveRDS(combined_gene_metric_per_sample_all,file="./intermediates/combined_SA_per_sample.rds")
+write.csv(combined_gene_metric_per_sample_all,file="./intermediates/combined_SA_per_sample.csv")
+saveRDS(TMB_all_cor,file="./intermediates/SA_correlations.rds")
+saveRDS(TMB_all_pvals,file="./intermediates/SA_pvals.rds")
+saveRDS(TMB_all_cor_norm,file="./intermediates/SA_correlations_norm.rds")
+saveRDS(TMB_all_pvals_norm,file="./intermediates/SA_pvals_norm.rds")
+saveRDS(cibersort_all_cor,file="./intermediates/cibersort_SA_correlations.rds")
+saveRDS(cibersort_all_pvals,file="./intermediates/cibersort_SA_pvals.rds")
+saveRDS(cibersort_all_cor_norm,file="./intermediates/cibersort_SA_correlations_norm.rds")
+saveRDS(cibersort_all_pvals_norm,file="./intermediates/cibersort_SA_pvals_norm.rds")
+saveRDS(combined_gene_metric_tumor_all_samples,file="./intermediates/combined_gene_metric_tumor_all_samples.rds")
+write.csv(combined_gene_metric_tumor_all_samples,
+          file="./intermediates/combined_gene_metric_tumor_all_samples.csv")
+saveRDS(combined_gene_metric_normal_all_samples,
+        file="./intermediates/combined_gene_metric_normal_all_samples.rds")
+write.csv(combined_gene_metric_normal_all_samples,
+        file="./intermediates/combined_gene_metric_normal_all_samples.csv")
+saveRDS(combined_gene_metric_tumor_all_genes,file="./intermediates/combined_gene_metric_tumor_all_genes.rds")
+write.csv(combined_gene_metric_tumor_all_genes,file="./intermediates/combined_gene_metric_tumor_all_genes.csv")
+saveRDS(combined_gene_metric_normal_all_genes,file="./intermediates/combined_gene_metric_normal_all_genes.rds")
+write.csv(combined_gene_metric_normal_all_genes,file="./intermediates/combined_gene_metric_normal_all_genes.csv")
+saveRDS(combined_gene_metric_DA_all,file="./intermediates/combined_gene_metric_DA_all.rds")
+write.csv(combined_gene_metric_DA_all,file="./intermediates/combined_gene_metric_DA_all.txt")
+
+```
+
+```{r,eval=T}
+
+combined_gene_metric_per_sample_all <- readRDS("./input_data/combined_SA_per_sample.rds")
+TMB_all_cor <- readRDS("./input_data/SA_correlations.rds")
+TMB_all_pvals <- readRDS("./input_data/SA_pvals.rds")
+TMB_all_cor_norm <- readRDS("./input_data/SA_correlations_norm.rds")
+TMB_all_pvals_norm <- readRDS("./input_data/SA_pvals_norm.rds")
+cibersort_all_cor <- readRDS("./input_data/cibersort_SA_correlations.rds")
+cibersort_all_pvals <- readRDS("./input_data/cibersort_SA_pvals.rds")
+cibersort_all_cor_norm <- readRDS("./input_data/cibersort_SA_correlations_norm.rds")
+cibersort_all_pvals_norm <- readRDS("./input_data/cibersort_SA_pvals_norm.rds")
+combined_gene_metric_tumor_all_samples <- readRDS("./input_data/combined_gene_metric_tumor_all_samples.rds")
+combined_gene_metric_tumor_all_genes <- readRDS("./input_data/combined_gene_metric_tumor_all_genes.rds")
+combined_gene_metric_normal_all_samples <- readRDS("./input_data/combined_gene_metric_normal_all_samples.rds")
+combined_gene_metric_normal_all_genes <- readRDS("./input_data/combined_gene_metric_normal_all_genes.rds")
+combined_gene_metric_DA_all <- readRDS("./input_data/combined_gene_metric_DA_all.rds")
+
+```
+
+## Evaluating splicing antigenicity wrt tumor purity
+
+```{r}
+
+tumor_purity_estimate <- vapply(combined_gene_metric_per_sample_all$sample_ID,function(samp){
+  a<-which(tumor_purity_filt$sample_ID==samp)
+  if(length(a)==0){
+    return(NA)
+  } else {
+    return(tumor_purity_filt[a[1],"purity"])
+  }
+},numeric(1))
+combined_gene_metric_per_sample_all$purity=tumor_purity_estimate
+combined_gene_metric_per_sample_all$SA_PUR_div <- combined_gene_metric_per_sample_all$splicing_antigenicity/combined_gene_metric_per_sample_all$purity
+
+```
+
+```{r}
+
+cancers <- unique(combined_gene_metric_per_sample_all$cancer)
+ESTIMATE_SA_corr_pval <- data.frame(cancer = cancers,
+                                    cor_val = rep(NA,length(cancers)),
+                                    pval = rep(NA,length(cancers)))
+rownames(ESTIMATE_SA_corr_pval)<-cancers
+
+for (can in cancers){
+  combined_gene_metric_per_sample_all_filt <- combined_gene_metric_per_sample_all %>% dplyr::filter(cancer==can)
+  a<-cor.test(as.numeric(combined_gene_metric_per_sample_all_filt$splicing_antigenicity),
+              as.numeric(combined_gene_metric_per_sample_all_filt$purity),method="kendall")
+  ESTIMATE_SA_corr_pval[can,2]<-as.numeric(a$estimate)
+  ESTIMATE_SA_corr_pval[can,3]<-as.numeric(a$p.value)
+}
+
+ggplot(ESTIMATE_SA_corr_pval,aes(x=cor_val,y=-log10(pval),label=cancer,color=cancer))+
+  geom_point()+
+  geom_hline(yintercept=-log10(0.05))+
+  xlim(c(-0.15,0.15))+
+  geom_text_repel()+
+  theme(legend.position = "none")+
+  xlab("Kendall Tau")+
+  ylab("-log10(p-value)")+
+  labs(title="Tumor Purity vs Splicing Antigenicity (Per TCGA Subtype, Kendall Tau)")+
+  annotate("text",0,1.25,label="Significance Threshold")
+
+datatable(ESTIMATE_SA_corr_pval)
+
+ggplot(combined_gene_metric_per_sample_all,aes(x=purity,y=splicing_antigenicity))+
+  geom_point()+
+  stat_cor(aes(label=paste(..r.label.., ..p.label.., sep = "~`,`~")),method = "kendall",label.x.npc="middle",label.y.npc="top",size = 5)+
+  geom_smooth(method="lm",se=F)+
+  xlab("Tumor Purity (ABSOLUTE)")+
+  ylab("Splicing Antigenicity")+
+  labs(title="Tumor Purity vs Splicing Antigenicity (All Samples, Kendall tau)")
+  
+
+```
+
+
+## Plotting splicing antigenicity given TMB split
+
+```{r}
+
+# cancers <- unique(combined_gene_metric_per_sample_all$cancer)
+# comb_gene_metric_fold_change_cor <- data.frame(cancer=cancers)
+# rownames(comb_gene_metric_fold_change_cor)<-cancers
+# comb_gene_metric_pvals <- data.frame(cancer=cancers)
+# rownames(comb_gene_metric_pvals) <- cancers
+# counts <- data.frame(cancer=cancers)
+# row.names(counts) <- cancers
+# 
+# for (cancer in cancers){
+#   print(cancer)
+#   # performing TMB type eval
+#   rows_filt<-!is.na(combined_gene_metric_per_sample_all$non_silent_mutations_per_mb) & combined_gene_metric_per_sample_all$cancer==cancer
+#   combined_gene_metric_per_sample_filt <- combined_gene_metric_per_sample_all[rows_filt,]
+#   combined_gene_metric_per_sample_filt$TMB_TYPE <- factor(combined_gene_metric_per_sample_filt$TMB_TYPE,levels=c("TMB LOW","TMB HIGH"))
+#   HIGH_COUNT=length(which(combined_gene_metric_per_sample_filt$TMB_TYPE=="TMB HIGH"))
+#   LOW_COUNT=length(which(combined_gene_metric_per_sample_filt$TMB_TYPE=="TMB LOW"))
+#   counts[cancer,"HIGH_COUNT"] <- HIGH_COUNT
+#   counts[cancer,"LOW_COUNT"] <- LOW_COUNT
+#   
+#   if (HIGH_COUNT > 0 & LOW_COUNT > 0){
+#     
+#     wilcox_test_val <- compare_means(splicing_antigenicity ~ TMB_TYPE, p.adjust.method = "BH", 
+#                              data=combined_gene_metric_per_sample_filt)
+#     TMB_HIGH_VAL <- mean(combined_gene_metric_per_sample_filt[combined_gene_metric_per_sample_filt$TMB_TYPE=="TMB HIGH","splicing_antigenicity"],na.rm=T)
+#     TMB_LOW_VAL <- mean(combined_gene_metric_per_sample_filt[combined_gene_metric_per_sample_filt$TMB_TYPE=="TMB LOW","splicing_antigenicity"],na.rm=T)
+#     comb_gene_metric_fold_change_cor[cancer,"log2_TMB_HIGH_ov_TMB_LOW"] <- log2(TMB_HIGH_VAL/TMB_LOW_VAL)
+#     comb_gene_metric_pvals[cancer,"pval_wilcoxon"]<-wilcox_test_val$p
+#   } else {
+#       comb_gene_metric_fold_change_cor[cancer,"log2_TMB_HIGH_ov_TMB_LOW"] <- 1
+#       comb_gene_metric_pvals[cancer,"pval_wilcoxon"]<-1
+#   }
+# }
+# 
+# comb_gene_metric <- data.frame(cancer=cancers,
+#                                log2_TMB_HIGH_ov_TMB_LOW=comb_gene_metric_fold_change_cor$log2_TMB_HIGH_ov_TMB_LOW,
+#                                pval_wilcoxon=comb_gene_metric_pvals$pval_wilcoxon)
+# 
+# cancer_HIGH_ov_LOW <- sprintf("%s:%d/%d",comb_gene_metric$cancer,counts[comb_gene_metric$cancer,"HIGH_COUNT"],counts[comb_gene_metric$cancer,"LOW_COUNT"])
+# ggplot(comb_gene_metric,aes(x=log2_TMB_HIGH_ov_TMB_LOW,y=-log10(pval_wilcoxon),
+#                             label=cancer,color=cancer_HIGH_ov_LOW))+
+#   geom_hline(yintercept=-log10(0.05))+
+#   geom_point()+
+#   geom_text_repel()+
+#   xlab("log2(mean HIGH TMB sample SA / mean LOW TMB sample SA)")+
+#   ylab("-log10(wilcoxon p-value)")+
+#   labs(color='cancer:(TMB High)/(TMB LOW)')
+# 
+# cancers <- unique(combined_gene_metric_per_sample_all$cancer)
+# comb_gene_metric_fold_change_cor <- data.frame(cancer=cancers)
+# rownames(comb_gene_metric_fold_change_cor)<-cancers
+# comb_gene_metric_pvals <- data.frame(cancer=cancers)
+# rownames(comb_gene_metric_pvals) <- cancers
+# counts <- data.frame(cancer=cancers)
+# row.names(counts) <- cancers
+# 
+# for (cancer in cancers){
+#   print(cancer)
+#   # performing TMB type eval
+#   rows_filt<-!is.na(combined_gene_metric_per_sample_all$non_silent_mutations_per_mb) & combined_gene_metric_per_sample_all$cancer==cancer
+#   combined_gene_metric_per_sample_filt <- combined_gene_metric_per_sample_all[rows_filt,]
+#   combined_gene_metric_per_sample_filt$TMB_TYPE <- factor(combined_gene_metric_per_sample_filt$TMB_TYPE,levels=c("TMB LOW","TMB HIGH"))
+#   HIGH_COUNT=length(which(combined_gene_metric_per_sample_filt$TMB_TYPE=="TMB HIGH"))
+#   LOW_COUNT=length(which(combined_gene_metric_per_sample_filt$TMB_TYPE=="TMB LOW"))
+#   counts[cancer,"HIGH_COUNT"] <- HIGH_COUNT
+#   counts[cancer,"LOW_COUNT"] <- LOW_COUNT
+#   
+#   if (HIGH_COUNT > 0 & LOW_COUNT > 0){
+#     
+#     wilcox_test_val <- compare_means(SA_PUR_div ~ TMB_TYPE, p.adjust.method = "BH", 
+#                              data=combined_gene_metric_per_sample_filt)
+#     TMB_HIGH_VAL <- mean(combined_gene_metric_per_sample_filt[combined_gene_metric_per_sample_filt$TMB_TYPE=="TMB HIGH","SA_PUR_div"],na.rm=T)
+#     TMB_LOW_VAL <- mean(combined_gene_metric_per_sample_filt[combined_gene_metric_per_sample_filt$TMB_TYPE=="TMB LOW","SA_PUR_div"],na.rm=T)
+#     comb_gene_metric_fold_change_cor[cancer,"log2_TMB_HIGH_ov_TMB_LOW"] <- log2(TMB_HIGH_VAL/TMB_LOW_VAL)
+#     comb_gene_metric_pvals[cancer,"pval_wilcoxon"]<-wilcox_test_val$p
+#   } else {
+#       comb_gene_metric_fold_change_cor[cancer,"log2_TMB_HIGH_ov_TMB_LOW"] <- 1
+#       comb_gene_metric_pvals[cancer,"pval_wilcoxon"]<-1
+#   }
+# }
+# 
+# comb_gene_metric <- data.frame(cancer=cancers,
+#                                log2_TMB_HIGH_ov_TMB_LOW=comb_gene_metric_fold_change_cor$log2_TMB_HIGH_ov_TMB_LOW,
+#                                pval_wilcoxon=comb_gene_metric_pvals$pval_wilcoxon)
+# 
+# cancer_HIGH_ov_LOW <- sprintf("%s:%d/%d",comb_gene_metric$cancer,counts[comb_gene_metric$cancer,"HIGH_COUNT"],counts[comb_gene_metric$cancer,"LOW_COUNT"])
+# ggplot(comb_gene_metric,aes(x=log2_TMB_HIGH_ov_TMB_LOW,y=-log10(pval_wilcoxon),
+#                             label=cancer,color=cancer_HIGH_ov_LOW))+
+#   geom_hline(yintercept=-log10(0.05))+
+#   geom_point()+
+#   geom_text_repel()+
+#   xlab("log2(mean HIGH TMB sample SA / mean LOW TMB sample SA)")+
+#   ylab("-log10(wilcoxon p-value)")+
+#   labs(color='cancer:(TMB High)/(TMB LOW)')
+
+```
+
+## Plotting splicing antigenicity vs all other metrics kendall correlation 
+
+```{r}
+
+figure_dir <- "./figures"
+
+# splitting TMB_all 
+TMB_all_cor_filt <- t(TMB_all_cor_norm[,seq(2,ncol(TMB_all_cor)-1)])
+TMB_all_pvals_filt <- t(TMB_all_pvals_norm[,seq(2,ncol(TMB_all_pvals)-1)])
+
+row_vals <- rownames(TMB_all_pvals_filt)
+cancers <- colnames(TMB_all_pvals_filt)
+for (row_val in row_vals){
+  pvals <- TMB_all_pvals_filt[row_val,]
+  TMB_all_pvals_filt[row_val,] <- p.adjust(pvals, method = "BH")
+}
+rownames(TMB_all_cor_filt) <- c("SA vs TMB","SA vs Leukocyte Fraction", "SA vs Num. Imm. Mut.", "SA vs Num. TCR Clones")
+
+png(sprintf("%s/%s",figure_dir,"FigS8A.png"),width = 500, height = 300)
+
+Heatmap(as.matrix(TMB_all_cor_filt), cell_fun = function(j, i, x, y, w, h, fill) {
+  if (is.na(TMB_all_pvals_filt[i,j])){
+    grid.text(".",x,y)
+  }else if(TMB_all_pvals_filt[i, j] < 0.005 & abs(TMB_all_cor_filt[i, j]) >= 0.2) {
+      grid.text("**", x, y)
+  } else if(TMB_all_pvals_filt[i, j] < 0.05 & abs(TMB_all_cor_filt[i, j]) >= 0.2) {
+      grid.text("*", x, y)
+  }
+},cluster_columns=T,name="kendall cor",
+clustering_method_rows="ward.D2",
+clustering_method_columns="ward.D2")
+
+dev.off()
+
+TMB_all_cor_filt <- t(TMB_all_cor_norm[,seq(2,ncol(TMB_all_cor))])
+TMB_all_pvals_filt <- t(TMB_all_pvals_norm[,seq(2,ncol(TMB_all_pvals_norm))])
+TMB_all <- cbind(TMB_all_cor_norm,TMB_all_pvals_norm[,seq(2,ncol(TMB_all_pvals_norm))])
+TMB_all_cor_cols<-colnames(TMB_all_cor_norm)
+TMB_all_pval_cols <- str_replace(TMB_all_cor_cols,"cor","pval")
+
+write.csv(TMB_all,file="./intermediates/TheImmuneLandscapeOfCancer_SA_correlations_norm.csv")
+
+
+```
+
+## Processing CIBERSORT Data
+
+```{r}
+
+# normalized
+
+cibersort_all_cor_filt<-t(cibersort_all_cor_norm[,seq(2,ncol(cibersort_all_cor))])
+cibersort_all_cor_filt[is.na(cibersort_all_cor_filt)]<-0
+cibersort_all_pvals_filt<-t(cibersort_all_pvals_norm[,seq(2,ncol(cibersort_all_pvals_norm))])
+cibersort_all_pvals_filt[is.na(cibersort_all_pvals_filt)]<-1
+
+row_vals <- rownames(cibersort_all_pvals_filt)
+cancers <- colnames(cibersort_all_pvals_filt)
+for (row_val in row_vals){
+  pvals <- cibersort_all_pvals_filt[row_val,]
+  cibersort_all_pvals_filt[row_val,] <- p.adjust(pvals, method = "BH")
+}
+
+png(sprintf("%s/%s",figure_dir,"FigS8B.png"),width = 500, height = 300)
+
+print(Heatmap(as.matrix(cibersort_all_cor_filt), cell_fun = function(j, i, x, y, w, h, fill) {
+  if (is.na(cibersort_all_pvals_filt[i,j])){
+    grid.text(".",x,y)
+  }else if(cibersort_all_pvals_filt[i, j] < 0.005 & abs(cibersort_all_cor_filt[i, j]) >= 0.2) {
+      grid.text("**", x, y)
+  } else if(cibersort_all_pvals_filt[i, j] < 0.05 & abs(cibersort_all_cor_filt[i, j]) >= 0.2) {
+      grid.text("*", x, y)
+  }
+},cluster_columns=T,name="kendall cor",
+clustering_method_rows="ward.D2",
+clustering_method_columns="ward.D2"))
+
+dev.off()
+
+cibersort_correlations_pvalues <- data.frame(TCGA_subtype=NA,immune_cell_type=NA,tau=NA,pvalue=NA)
+supplement_forming_meta <- vapply(unique(cibersort_all_cor$cancers),function(cancer){
+  immune_cell_type <- as.character(unname(colnames(cibersort_all_cor)[seq(2,ncol(cibersort_all_cor))]))
+  tau <- as.character(unname(cibersort_all_cor[cibersort_all_cor$cancers==cancer,][seq(2,ncol(cibersort_all_cor))]))
+  pvalue <- as.character(unname(cibersort_all_pvals[cibersort_all_pvals$cancers==cancer,][seq(2,ncol(cibersort_all_pvals))]))
+  cibersort_filler <- data.frame(TCGA_subtype=rep(cancer,length(tau)),immune_cell_type=immune_cell_type,tau=tau,pvalue=pvalue)
+  cibersort_correlations_pvalues <<- rbind(cibersort_correlations_pvalues,cibersort_filler)
+  return(T)
+},logical(1))
+cibersort_correlations_pvalues <- cibersort_correlations_pvalues[seq(2,nrow(cibersort_correlations_pvalues)),]
+
+cibersort_all_cor_filt <- data.frame(cibersort_all_cor_filt)
+cell_type_order <- c("T.cells.CD8","Dendritic.cells.resting","Macrophages.M1","T.cells.CD4.memory.resting","B.cells.memory","T.cells.regulatory..Tregs.",
+                     "T.cells.follicular.helper","Macrophages.M0","T.cells.CD4.memory.activated","Monocytes","B.cells.naive","Mast.cells.resting","NK.cells.activated","Dendritic.cells.activated","Neutrophils","Eosinophils","Mast.cells.activated","Plasma.cells","T.cells.CD4.naive","Macrophages.M2","NK.cells.resting","T.cells.gamma.delta")
+CHOL_LIHC <- data.frame(CHOL=cibersort_all_cor_filt[,"CHOL"],LIHC=cibersort_all_cor_filt[,"LIHC"],cell_type=rownames(cibersort_all_cor_filt))
+CHOL_LIHC$LIHC_ov_CHOL <- CHOL_LIHC$LIHC/CHOL_LIHC$CHOL
+CHOL_LIHC <- CHOL_LIHC[order(CHOL_LIHC$LIHC_ov_CHOL),]
+CHOL_LIHC$cell_type <- factor(CHOL_LIHC$cell_type,levels=rev(cell_type_order))
+
+ggplot(CHOL_LIHC,aes(y=cell_type,x=LIHC_ov_CHOL,fill=sign(LIHC)))+
+  geom_bar(stat="identity")+
+  theme(axis.text.x = element_text(angle = 90))+
+  geom_vline(xintercept=1)+
+  geom_vline(xintercept=-1)+
+  xlab("LIHC tau/CHOL tau")
+
+print(mean(CHOL_LIHC[CHOL_LIHC$cell_type %in% c("T.cells.CD8","Dendritic.cells.resting","Macrophages.M1","T.cells.CD4.memory.resting","B.cells.memory","T.cells.regulatory..Tregs.",
+                     "T.cells.follicular.helper"),"LIHC_ov_CHOL"]))
+# write.csv(cibersort_correlations_pvalues,file=mod_path("/mnt/f/TCGA_junctions/splicemutr_paper_supplement_data/TheImmuneLandscapeOfCancer_SA_CIBERSORT_correlations.csv"))
+
+```
+
+
+## TMB Correlation for all samples
+
+```{r, fig.width=3,fig.height=3}
+
+figure_dir <- "./figures"
+
+HIGH_COUNT=length(which(combined_gene_metric_per_sample_all$TMB_TYPE=="TMB HIGH"))
+LOW_COUNT=length(which(combined_gene_metric_per_sample_all$TMB_TYPE=="TMB LOW"))
+TMB_HIGH_string <- sprintf("TMB HIGH\n(n=%d)",HIGH_COUNT)
+TMB_LOW_string <- sprintf("TMB LOW\n(n=%d)",LOW_COUNT)
+
+combined_gene_metric_per_sample_all$TMB_TYPE_vis <- NA
+
+combined_gene_metric_per_sample_all$TMB_TYPE_vis[which(combined_gene_metric_per_sample_all$TMB_TYPE=="TMB HIGH")] <- TMB_HIGH_string
+combined_gene_metric_per_sample_all$TMB_TYPE_vis[which(combined_gene_metric_per_sample_all$TMB_TYPE=="TMB LOW")] <- TMB_LOW_string
+
+my_comparisons <- list( c(TMB_LOW_string, TMB_HIGH_string))
+wilcox_test_val <- compare_means(splicing_antigenicity ~ TMB_TYPE_vis, 
+                             comparisons = my_comparisons, p.adjust.method = "BH", data=combined_gene_metric_per_sample_all)
+combined_gene_metric_per_sample_all_filt <- combined_gene_metric_per_sample_all %>% dplyr::filter(!is.na(non_silent_mutations_per_mb)) # & !is.na(splicing_antigenicity) & !is.na(TMB_TYPE_vis) & !is.na(SA_PUR_div))
+
+cohens_d <- cohens_d(data=combined_gene_metric_per_sample_all_filt,splicing_antigenicity~TMB_TYPE_vis)
+cohens_d <- cohens_d$Cohens_d
+
+# effect_size <- (mean(combined_gene_metric_per_sample_all_filt$splicing_antigenicity[which(combined_gene_metric_per_sample_all$TMB_TYPE_vis==TMB_HIGH_string)],na.rm=T) - mean(combined_gene_metric_per_sample_all_filt$splicing_antigenicity[which(combined_gene_metric_per_sample_all$TMB_TYPE_vis==TMB_LOW_string)],na.rm=T))/sd(combined_gene_metric_per_sample_all_filt$splicing_antigenicity[which(combined_gene_metric_per_sample_all$TMB_TYPE_vis==TMB_HIGH_string)],na.rm=T)
+
+combined_gene_metric_per_sample_all_filt_TMB_TYPE_vis <- combined_gene_metric_per_sample_all_filt %>% dplyr::filter(TMB_TYPE_vis %in% c(TMB_LOW_string, TMB_HIGH_string))
+
+cohens_d <- cohens_d(data=combined_gene_metric_per_sample_all_filt,SA_PUR_div~TMB_TYPE_vis)
+cohens_d <- cohens_d$Cohens_d
+
+wilcox_test_val <- compare_means(SA_PUR_div ~ TMB_TYPE_vis, 
+                             comparisons = my_comparisons, p.adjust.method = "BH", data=combined_gene_metric_per_sample_all_filt_TMB_TYPE_vis)
+wilcox_test_val$cohens_d <- cohens_d
+wilcox_test_val$cohens_d <- format(round(wilcox_test_val$cohens_d, 2), nsmall = 2)
+
+png(sprintf("%s/%s",figure_dir,"Fig2B.png"),width = 480/1.5, height = 300/1.25)
+
+print(ggplot(combined_gene_metric_per_sample_all_filt_TMB_TYPE_vis,aes(y=SA_PUR_div,x=TMB_TYPE_vis))+
+  geom_boxplot(fill="grey")+
+    add_pvalue(wilcox_test_val, label = "{p.signif},d={cohens_d}", remove.bracket = FALSE,label.size=6,y.position=3.5)+
+    ylab(("splicing antigenicity"))+
+  theme(axis.title.x=element_blank(),
+        axis.title.y=element_text(size = 20),
+        axis.text.y=element_text(size=20),
+        axis.text.x=element_text(size=15)))+
+  ylim(c(0,4))
+
+dev.off()
+
+```
+
+
+```{r,fig.width=5,fig.height=3}
+
+figure_dir <- "./figures"
+
+# SA_PUR_div
+
+ggplot(combined_gene_metric_per_sample_all_filt,aes(y=SA_PUR_div,x=log10(non_silent_mutations_per_mb+1)))+
+  geom_point()+
+  stat_cor(aes(label=paste(..r.label.., ..p.label.., sep = "~`,`~")),method = "kendall",label.x.npc="middle",label.y.npc="top",size = 5)+
+  geom_smooth(method="lm",se=F)+
+    labs("All Samples")+
+  xlab("log10(TMB)")+ylab("splicing antigenicity")+
+  theme(text = element_text(size = 20))
+
+ggplot(combined_gene_metric_per_sample_all_filt,aes(y=SA_PUR_div,x=non_silent_mutations_per_mb))+
+  geom_point()+
+  stat_cor(aes(label=paste(..r.label.., ..p.label.., sep = "~`,`~")),method = "kendall",label.x.npc="middle",label.y.npc="top",size = 5)+
+  geom_smooth(method="lm",se=F)+
+    labs("All Samples")+
+  xlab("log10(TMB)")+ylab("splicing antigenicity")+
+  theme(text = element_text(size = 20)) 
+
+combined_gene_metric_per_sample_all_filt_KICH_UCEC <- combined_gene_metric_per_sample_all_filt %>% 
+  dplyr::filter((cancer %in% c("THCA","KICH")))
+ggplot(combined_gene_metric_per_sample_all_filt_KICH_UCEC,aes(y=SA_PUR_div,x=log10(non_silent_mutations_per_mb+1),color=cancer))+
+  geom_point(alpha=0.5,shape=1)+
+  stat_cor(aes(label=paste(..r.label.., ..p.label.., sep = "~`,`~")),method = "kendall",label.x.npc="middle",label.y.npc="top",size = 5)+
+  # geom_smooth(method="lm",se=F)+
+    labs("All Samples")+
+  xlab("log10(TMB)")+ylab("splicing antigenicity")+
+  theme(text = element_text(size = 20)) 
+
+
+combined_gene_metric_per_sample_all_sum_norm <- data.frame(cancer=unique(combined_gene_metric_per_sample_all_filt$cancer))
+rownames(combined_gene_metric_per_sample_all_sum_norm) <- combined_gene_metric_per_sample_all_sum_norm$cancer
+for (cancer in combined_gene_metric_per_sample_all$cancer){
+  combined_gene_metric_per_sample_small <- combined_gene_metric_per_sample_all_filt[combined_gene_metric_per_sample_all_filt$cancer==cancer,]
+  
+  combined_gene_metric_per_sample_all_sum_norm[combined_gene_metric_per_sample_all_sum_norm$cancer==cancer,"median_TMB"] <- median(combined_gene_metric_per_sample_small$non_silent_mutations_per_mb,na.rm=T)
+  
+  combined_gene_metric_per_sample_all_sum_norm[combined_gene_metric_per_sample_all_sum_norm$cancer==cancer,"mean_TMB"] <- mean(combined_gene_metric_per_sample_small$non_silent_mutations_per_mb,na.rm=T)
+  
+    combined_gene_metric_per_sample_all_sum_norm[combined_gene_metric_per_sample_all_sum_norm$cancer==cancer,"sd_TMB"] <- sd(combined_gene_metric_per_sample_small$non_silent_mutations_per_mb,na.rm=T)
+    
+        combined_gene_metric_per_sample_all_sum_norm[combined_gene_metric_per_sample_all_sum_norm$cancer==cancer,"se_TMB"] <- sd(combined_gene_metric_per_sample_small$non_silent_mutations_per_mb,na.rm=T) / sqrt(length(combined_gene_metric_per_sample_small$non_silent_mutations_per_mb))
+    
+  combined_gene_metric_per_sample_all_sum_norm[combined_gene_metric_per_sample_all_sum_norm$cancer==cancer,"SA_PUR_div"] <- mean(combined_gene_metric_per_sample_small$SA_PUR_div,na.rm=T)
+  
+    combined_gene_metric_per_sample_all_sum_norm[combined_gene_metric_per_sample_all_sum_norm$cancer==cancer,"sd_SA"] <- sd(combined_gene_metric_per_sample_small$SA_PUR_div,na.rm=T)
+  
+    combined_gene_metric_per_sample_all_sum_norm[combined_gene_metric_per_sample_all_sum_norm$cancer==cancer,"se_SA"] <- sd(combined_gene_metric_per_sample_small$SA_PUR_div,na.rm=T)/sqrt(length(combined_gene_metric_per_sample_small$SA_PUR_div))
+    
+}
+
+png(sprintf("%s/%s",figure_dir,"Fig2C.png"),width = 480/1.5, height = 300/1.25)
+
+ggplot(combined_gene_metric_per_sample_all_sum_norm,aes(y=SA_PUR_div,x=median_TMB,label=cancer))+
+  stat_cor(aes(label=paste(..r.label.., ..p.label.., sep = "~`,`~")),method = "kendall",label.x.npc="middle",label.y.npc="top",size = 5)+
+  geom_smooth(method="lm",se=F)+
+  geom_text_repel()+
+  geom_point(size=1)+
+  labs("All Samples")+
+  ylab("splicing antigenicity")+xlab("median TMB")+
+  theme(legend.position="none")+
+  theme(text = element_text(size = 20)) +
+  ylim(c(0,max(combined_gene_metric_per_sample_all_sum_norm$SA_PUR_div)+0.02))+
+  xlim(c(0,max(combined_gene_metric_per_sample_all_sum_norm$median_TMB)+0.02))
+
+dev.off()
+
+png(sprintf("%s/%s",figure_dir,"FigS2.png"),width = 480/1.5, height = 300/1.25)
+
+combined_gene_metric_per_sample_all_sum_norm_filt <- combined_gene_metric_per_sample_all_sum_norm %>% 
+  dplyr::filter(!(cancer %in% c("THCA")))
+ggplot(combined_gene_metric_per_sample_all_sum_norm_filt,aes(y=SA_PUR_div,x=median_TMB,label=cancer))+
+  stat_cor(aes(label=paste(..r.label.., ..p.label.., sep = "~`,`~")),method = "kendall",label.x.npc="middle",label.y.npc="top",size = 5)+
+  geom_smooth(method="lm",se=F)+
+  geom_text_repel()+
+  # geom_text()+
+  geom_point(size=1)+
+  labs("All Samples")+
+  ylab("splicing antigenicity")+xlab("median TMB")+
+  theme(legend.position="none")+
+  theme(text = element_text(size = 20)) +
+  ylim(c(0,max(combined_gene_metric_per_sample_all_sum_norm$SA_PUR_div)+0.02))+
+  xlim(c(0,max(combined_gene_metric_per_sample_all_sum_norm$median_TMB)+0.02))
+
+dev.off()
+
+ggplot(combined_gene_metric_per_sample_all_sum_norm,aes(y=SA_PUR_div,x=mean_TMB,label=cancer))+
+  stat_cor(aes(label=paste(..r.label.., ..p.label.., sep = "~`,`~")),method = "kendall",label.x.npc="middle",label.y.npc="top",size = 5)+
+  geom_smooth(method="lm",se=F)+
+  geom_text_repel()+
+  labs("All Samples")+
+  xlab("mean splicing antigenicity")+ylab("mean TMB")+
+  theme(legend.position="none")+
+  theme(text = element_text(size = 20))
+
+ggplot(combined_gene_metric_per_sample_all_sum_norm,aes(y=SA_PUR_div,x=mean_TMB,label=cancer))+
+  stat_cor(aes(label=paste(..r.label.., ..p.label.., sep = "~`,`~")),method = "kendall",label.x.npc="middle",label.y.npc="top",size = 5)+
+  geom_smooth(method="lm",se=F)+
+  geom_text_repel(aes(color=factor(cancer)),direction="both")+
+  geom_point(aes(color=cancer))+
+  labs("All Samples")+
+  xlab("mean splicing antigenicity")+ylab("mean TMB")+
+  theme(legend.position="none")+
+  theme(text = element_text(size = 20))+
+  geom_errorbar(aes(xmin=mean_TMB-1.96*se_TMB, xmax=mean_TMB+1.96*se_TMB,color=factor(cancer)),width=.00025)+
+  geom_errorbar(aes(ymin=SA_PUR_div-1.96*se_SA, ymax=SA_PUR_div+1.96*se_SA,color=factor(cancer)),width=.00025)
+
+# ggplot(combined_gene_metric_DA_all,aes(x=cancer,y=log2(DA)))+
+#   geom_boxplot()+
+#   geom_hline(yintercept=0)+
+#   ylab("Differential Agretopicity")+
+#   xlab("Cancer Subtype")+
+#   theme(axis.text.x = element_text(angle = 90))+
+#   theme(text = element_text(size = 20)) 
+
+```
+
+# Tumor vs normal SA averaged across genes
+
+```{r,fig.width=8,fig.height=3}
+
+combined_gene_metric_tumor_normal_all_samples <- rbind(combined_gene_metric_tumor_all_samples,
+                                               combined_gene_metric_normal_all_samples)
+combined_gene_metric_tumor_normal_all_samples$tumor_purity <- vapply(combined_gene_metric_tumor_normal_all_samples$sample_ID,function(sample){
+  a<- which(tumor_purity_filt$array==sample)
+  if (length(a)==1){
+    return(tumor_purity_filt$purity[a])
+  } else {
+    return(-1)
+  }
+},numeric(1))
+combined_gene_metric_tumor_normal_all_samples$tumor_purity[combined_gene_metric_tumor_normal_all_samples$type=="normal"]<-1
+combined_gene_metric_tumor_normal_all_samples$SA <- combined_gene_metric_tumor_normal_all_samples$SA/combined_gene_metric_tumor_normal_all_samples$tumor_purity
+combined_gene_metric_tumor_normal_all_samples_filt <- combined_gene_metric_tumor_normal_all_samples %>% dplyr::filter(tumor_purity>=0)
+
+wilcox_test_val <- compare_means(SA ~ type, p.adjust.method = "BH",
+                                 data=combined_gene_metric_tumor_normal_all_samples_filt,
+                                 group.by = "cancer")
+cohens_d <- calculate_cohens_d(wilcox_test_val,c("cancer"),"type",combined_gene_metric_tumor_normal_all_samples)
+wilcox_test_val$cohens_d <- format(round(cohens_d$cohens_d, 2), nsmall = 2)
+wilcox_test_val$p.format.round <- formatC(as.numeric(wilcox_test_val$p.format), format = "e", digits = 2)
+wilcox_test_val_filt <- wilcox_test_val %>% dplyr::filter(p.signif != "ns")
+
+tumor_minus_normal_cohens_d <- vapply(cancers,function(can){
+  combined_gene_metric_tumor_normal_all_samples_filt_filt <- combined_gene_metric_tumor_normal_all_samples_filt %>% dplyr::filter(cancer==can)
+  combined_gene_metric_tumor_normal_all_samples_filt_filt$type <- factor(combined_gene_metric_tumor_normal_all_samples_filt_filt$type,levels=c("tumor","normal"))
+  Cohens_d <- cohens_d(data=combined_gene_metric_tumor_normal_all_samples_filt_filt,SA~type)
+  Cohens_d <- Cohens_d$Cohens
+  return(Cohens_d)
+},numeric(1))
+
+
+png(sprintf("%s/%s",figure_dir,"Fig2A.png"),width = 800, height = 300)
+
+combined_gene_metric_tumor_normal_all_samples_filt$type <- factor(combined_gene_metric_tumor_normal_all_samples_filt$type,
+                                                                  levels=c("tumor","normal"))
+ggplot(combined_gene_metric_tumor_normal_all_samples_filt,aes(x=type,y=SA))+
+  geom_boxplot(aes(fill=type))+
+  facet_grid(~cancer)+
+  theme(text=element_text(size=15),
+        legend.text = element_text(size=15),
+        legend.position="bottom",
+        strip.text.x = element_text(size = 15),
+        axis.text.x = element_blank(),
+        axis.title.x=element_blank(),
+        axis.title.y=element_text(size = 15),
+        axis.text.y=element_text(size = 15))+
+  add_pvalue(wilcox_test_val_filt,label = "{cohens_d}\n{p.signif}", 
+             remove.bracket = TRUE,
+             y.position=max(combined_gene_metric_tumor_normal_all_samples_filt$SA)+0.01,
+             label.size=6)+
+  ylab("splicing antigenicity")+
+ylim(c(0,4.2))+
+    scale_color_manual(values = c("tumor" = "#F8766D",
+                              "normal"="#619CFF"),
+                       aesthetics="fill")
+
+dev.off()
+
+```
+
+# Analyzing Splicing Factor Mutations per cancer type including missense mutations
+
+## Just HNSC and BRCA
+
+```{r,fig.width=5,fig.height=3}
+
+# this is where I need to plot splicing antigenicity across mutant and wild-type otherwise my data does not match correctly for 119 vs individual
+
+splice_vals <- data.frame(cancer=cancers)
+rownames(splice_vals) <- cancers
+splice_vals_norm <- data.frame(cancer=cancers)
+rownames(splice_vals_norm) <- cancers
+
+# Ben Ho Park genes: SF3B1, U2AF1 or SRSF2
+splice_maf_data <- readRDS("./input_data/TCGA_cancers/JHPCE/filter_maf/output/splicing_factor_data.maf.rds")
+splice_maf_data$sample_ID <- vapply(TCGAbarcode(splice_maf_data$Tumor_Sample_Barcode,sample=T),
+                                       function(val){substr(val,1,nchar(val)-1)},character(1))
+splice_maf_data_filt <- splice_maf_data[splice_maf_data$sample_ID %in% combined_gene_metric_per_sample_all$sample,]
+splicing_factor_genes <- c(unique(splice_maf_data$Hugo_Symbol),"RBM39")
+cancers <- unique(combined_gene_metric_per_sample_all$cancer)
+for (gene in splicing_factor_genes){
+  combined_gene_metric_per_sample_all[,gene]<-"WT"
+  splice_maf_data_filt_small <- splice_maf_data_filt[splice_maf_data_filt$Hugo_Symbol==gene,]
+  combined_gene_metric_per_sample_all[combined_gene_metric_per_sample_all$sample %in% splice_maf_data_filt_small$sample_ID,gene]<-"MUT"
+}
+combined_gene_metric_per_sample_all[,"all_genes"]<-"WT"
+combined_gene_metric_per_sample_all[combined_gene_metric_per_sample_all$sample %in% splice_maf_data_filt$sample_ID,"all_genes"]<-"MUT"
+wilcox_test_val_all <- compare_means(splicing_antigenicity ~ all_genes,comparisons = my_comparisons, p.adjust.method = "BH", data=combined_gene_metric_per_sample_all,group.by = "cancer")
+
+cancers_small <- c("BRCA","HNSC")
+
+all_comps_df <- data.frame(cancer=cancers_small)
+rownames(all_comps_df) <- cancers_small
+
+for (i in seq(length(cancers_small))){
+  print(i)
+  cancer <- cancers_small[i]
+  combined_gene_metric_per_sample_all_small <- combined_gene_metric_per_sample_all[combined_gene_metric_per_sample_all$cancer==cancer,]
+  my_comparisons=list(c("WT","MUT"))
+  MUT_VALS<-length(which(combined_gene_metric_per_sample_all_small$all_genes=="MUT"))
+  WT_VALS<-length(which(combined_gene_metric_per_sample_all_small$all_genes=="WT"))
+  if (MUT_VALS>0 & WT_VALS>0){
+    
+    if (cancer=="BRCA"){
+      max_SA<-3.5
+      png(sprintf("%s/%s",figure_dir,"Fig4A.png"),width = 400, height = 300)
+      graph_plot_SF3B1(combined_gene_metric_per_sample_all_small,max_SA)
+      dev.off()
+    } else if (cancer=="HNSC"){
+      max_SA<-3.5
+      png(sprintf("%s/%s",figure_dir,"Fig4B.png"),width = 400, height = 300)
+      graph_plot_SF3B1(combined_gene_metric_per_sample_all_small,max_SA)
+      dev.off()
+    }
+
+    graph_plot_U2AF1(combined_gene_metric_per_sample_all_small)
+    graph_plot_SRSF2(combined_gene_metric_per_sample_all_small)
+    wilcox_test_val <- compare_means(splicing_antigenicity ~ all_genes,
+                                     comparisons = my_comparisons, 
+                                     p.adjust.method = "BH",
+                                     data=combined_gene_metric_per_sample_all_small)
+    MUT_SA <- combined_gene_metric_per_sample_all_small[combined_gene_metric_per_sample_all_small$all_genes=="MUT","splicing_antigenicity"]
+    WT_SA <- combined_gene_metric_per_sample_all_small[combined_gene_metric_per_sample_all_small$all_genes=="WT","splicing_antigenicity"]
+    MUT_VALS<-length(which(combined_gene_metric_per_sample_all_small$all_genes=="MUT"))
+    WT_VALS<-length(which(combined_gene_metric_per_sample_all_small$all_genes=="WT"))
+    splice_vals[cancer,"MUT_ov_WT"]<-mean(MUT_SA,na.rm=T)/mean(WT_SA,na.rm=T)
+    splice_vals[cancer,"MUT_minus_WT"]<-(mean(MUT_SA,na.rm=T) - mean(WT_SA,na.rm=T))/sqrt(((sd(MUT_SA,na.rm=T)**2)+(sd(WT_SA,na.rm=T)**2))/2)
+    splice_vals[cancer,"pvalue"]<-wilcox_test_val$p
+    splice_vals[cancer,"MUT_COUNT"] <- MUT_VALS
+    splice_vals[cancer,"WT_COUNT"] <- WT_VALS
+    
+    MUT_SA <- combined_gene_metric_per_sample_all_small[combined_gene_metric_per_sample_all_small$all_genes=="MUT","SA_PUR_div"]
+    WT_SA <- combined_gene_metric_per_sample_all_small[combined_gene_metric_per_sample_all_small$all_genes=="WT","SA_PUR_div"]
+    MUT_VALS<-length(which(combined_gene_metric_per_sample_all_small$all_genes=="MUT"))
+    WT_VALS<-length(which(combined_gene_metric_per_sample_all_small$all_genes=="WT"))
+    splice_vals_norm[cancer,"MUT_ov_WT"]<-mean(MUT_SA,na.rm=T)/mean(WT_SA,na.rm=T)
+    splice_vals_norm[cancer,"MUT_minus_WT"]<-(mean(MUT_SA,na.rm=T) - mean(WT_SA,na.rm=T))/sqrt(((sd(MUT_SA,na.rm=T)**2)+(sd(WT_SA,na.rm=T)**2))/2)
+    splice_vals_norm[cancer,"pvalue"]<-wilcox_test_val$p
+    splice_vals_norm[cancer,"MUT_COUNT"] <- MUT_VALS
+    splice_vals_norm[cancer,"WT_COUNT"] <- WT_VALS
+    
+  } else {
+    MUT_VALS<-length(which(combined_gene_metric_per_sample_all_small$all_genes=="MUT"))
+    WT_VALS<-length(which(combined_gene_metric_per_sample_all_small$all_genes=="WT"))
+    splice_vals[cancer,"MUT_ov_WT"]<-NA
+    splice_vals[cancer,"pvalue"]<-NA
+    splice_vals[cancer,"MUT_COUNT"] <- MUT_VALS
+    splice_vals[cancer,"WT_COUNT"] <- WT_VALS
+    
+    splice_vals_norm[cancer,"MUT_ov_WT"]<-NA
+    splice_vals_norm[cancer,"pvalue"]<-NA
+    splice_vals_norm[cancer,"MUT_COUNT"] <- MUT_VALS
+    splice_vals_norm[cancer,"WT_COUNT"] <- WT_VALS
+    
+  }
+    
+  SF_genes_small <- "SF3B1"
+  for (j in seq(length(SF_genes_small))){
+    gene <- SF_genes_small[j]
+    gene_metric_av_gene_df <- data.frame(splicing_antigenicity=combined_gene_metric_per_sample_all_small$splicing_antigenicity,
+                                   gene=combined_gene_metric_per_sample_all_small[,gene])
+    if (length(unique(gene_metric_av_gene_df$gene))==1){
+      a<-c(rep(NA,8),cancer,gene,NA,NA,
+           length(gene_metric_av_gene_df$splicing_antigenicity[gene_metric_av_gene_df$gene=="WT"]),
+                  length(gene_metric_av_gene_df$splicing_antigenicity[gene_metric_av_gene_df$gene=="MUT"]))
+    } else {
+      a<-compare_means(splicing_antigenicity~gene,data=gene_metric_av_gene_df)
+      a$cancer <- cancer
+      a$gene <- gene
+      a$mut_ov_wt <- mean(gene_metric_av_gene_df$splicing_antigenicity[gene_metric_av_gene_df$gene=="MUT"],na.rm=T)/mean(gene_metric_av_gene_df$splicing_antigenicity[gene_metric_av_gene_df$gene=="WT"],na.rm=T)
+      a$mut_wt_cohens_d <- cohens_d(data=gene_metric_av_gene_df,splicing_antigenicity~gene)
+
+      a$WT_NUM <- length(gene_metric_av_gene_df$splicing_antigenicity[gene_metric_av_gene_df$gene=="WT"])
+      a$MUT_NUM <- length(gene_metric_av_gene_df$splicing_antigenicity[gene_metric_av_gene_df$gene=="MUT"])
+      a<-data.frame(a)
+    }
+    if (i == 1){
+      all_comps <- a
+    } else {
+      all_comps <- rbind(all_comps,a)
+    }
+  }
+}
+
+for (j in seq(length(SF_genes_small))){
+  gene <- SF_genes_small[j]
+  gene_metric_av_gene_df <- data.frame(splicing_antigenicity=combined_gene_metric_per_sample_all$splicing_antigenicity,
+                                 gene=combined_gene_metric_per_sample_all[,gene])
+  if (length(unique(gene_metric_av_gene_df$gene))==1){
+    a<-rep(NA,14)
+  } else {
+    a<-compare_means(splicing_antigenicity~gene,data=gene_metric_av_gene_df)
+    a$cancer <- "all"
+    a$gene <- gene
+    a$mut_ov_wt <- mean(gene_metric_av_gene_df$splicing_antigenicity[gene_metric_av_gene_df$gene=="MUT"],na.rm=T)/mean(gene_metric_av_gene_df$splicing_antigenicity[gene_metric_av_gene_df$gene=="WT"],na.rm=T)
+      a$mut_wt_cohens_d <- cohens_d(data=gene_metric_av_gene_df,splicing_antigenicity~gene)
+      # a$mut_wt_EZ <- (mean(gene_metric_av_gene_df$splicing_antigenicity[gene_metric_av_gene_df$gene=="MUT"],na.rm=T) - mean(gene_metric_av_gene_df$splicing_antigenicity[gene_metric_av_gene_df$gene=="WT"],na.rm=T)) / sd(gene_metric_av_gene_df$splicing_antigenicity[gene_metric_av_gene_df$gene=="MUT"],na.rm=T)
+    a$WT_NUM <- length(gene_metric_av_gene_df$splicing_antigenicity[gene_metric_av_gene_df$gene=="WT"])
+    a$MUT_NUM <- length(gene_metric_av_gene_df$splicing_antigenicity[gene_metric_av_gene_df$gene=="MUT"])
+    a<-data.frame(a)
+  }
+  if (j == 1){
+    all_comps_all_samples <- a
+  } else {
+    all_comps_all_samples <- rbind(all_comps_all_samples,a)
+  }
+}
+
+colnames(splice_vals)<-c("cancer","MUT_ov_WT","MUT_minus_WT_cohens_d","pvalue","MUT_COUNT","WT_COUNT")
+
+ggplot(splice_vals,aes(x=MUT_minus_WT_cohens_d,y=-log10(pvalue),color=sprintf("%s:%d/%d",cancer,MUT_COUNT,WT_COUNT),label=cancer))+
+  geom_point()+
+  geom_text_repel()+
+  geom_hline(yintercept=-log10(0.05))+
+  labs(color="cancer: MUT_count/WT_count")+
+  xlab("Cohens d")+xlim(c(0,max(splice_vals$MUT_minus_WT_cohens_d)))
+
+```
+
+
+```{r,fig.width=5,fig.height=3}
+
+# normalized
+
+# this is where I need to plot splicing antigenicity across mutant and wild-type otherwise my data does not match correctly for 119 vs individual
+
+splice_vals_norm <- data.frame(cancer=cancers)
+rownames(splice_vals_norm) <- cancers
+
+# Ben Ho Park genes: SF3B1, U2AF1 or SRSF2
+splice_maf_data <- readRDS("./input_data/TCGA_cancers/JHPCE/filter_maf/output/splicing_factor_data.maf.rds")
+splice_maf_data$sample_ID <- vapply(TCGAbarcode(splice_maf_data$Tumor_Sample_Barcode,sample=T),
+                                       function(val){substr(val,1,nchar(val)-1)},character(1))
+splice_maf_data_filt <- splice_maf_data[splice_maf_data$sample_ID %in% combined_gene_metric_per_sample_all$sample,]
+splicing_factor_genes <- c(unique(splice_maf_data$Hugo_Symbol),"RBM39")
+cancers <- unique(combined_gene_metric_per_sample_all$cancer)
+for (gene in splicing_factor_genes){
+  combined_gene_metric_per_sample_all[,gene]<-"WT"
+  splice_maf_data_filt_small <- splice_maf_data_filt[splice_maf_data_filt$Hugo_Symbol==gene,]
+  combined_gene_metric_per_sample_all[combined_gene_metric_per_sample_all$sample %in% splice_maf_data_filt_small$sample_ID,gene]<-"MUT"
+}
+combined_gene_metric_per_sample_all[,"all_genes"]<-"WT"
+combined_gene_metric_per_sample_all[combined_gene_metric_per_sample_all$sample %in% splice_maf_data_filt$sample_ID,"all_genes"]<-"MUT"
+wilcox_test_val_all <- compare_means(SA_PUR_div ~ all_genes,comparisons = my_comparisons, p.adjust.method = "BH", data=combined_gene_metric_per_sample_all,group.by = "cancer")
+
+all_comps_df <- data.frame(cancer=cancers)
+rownames(all_comps_df) <- cancers
+
+
+for (i in seq(length(cancers))){
+  print(i)
+  cancer <- cancers[i]
+  combined_gene_metric_per_sample_all_small <- combined_gene_metric_per_sample_all[combined_gene_metric_per_sample_all$cancer==cancer,]
+  my_comparisons=list(c("WT","MUT"))
+  MUT_VALS<-length(which(combined_gene_metric_per_sample_all_small$all_genes=="MUT"))
+  WT_VALS<-length(which(combined_gene_metric_per_sample_all_small$all_genes=="WT"))
+  if (MUT_VALS>0 & WT_VALS>0){
+    graph_plot_SF3B1(combined_gene_metric_per_sample_all_small,-1)
+    graph_plot_U2AF1(combined_gene_metric_per_sample_all_small)
+    graph_plot_SRSF2(combined_gene_metric_per_sample_all_small)
+    wilcox_test_val <- compare_means(SA_PUR_div ~ all_genes,comparisons = my_comparisons, 
+                                     p.adjust.method = "BH", 
+                                     data=combined_gene_metric_per_sample_all_small)
+    MUT_SA <- combined_gene_metric_per_sample_all_small[combined_gene_metric_per_sample_all_small$all_genes=="MUT","SA_PUR_div"]
+    WT_SA <- combined_gene_metric_per_sample_all_small[combined_gene_metric_per_sample_all_small$all_genes=="WT","SA_PUR_div"]
+    MUT_VALS<-length(which(combined_gene_metric_per_sample_all_small$all_genes=="MUT"))
+    WT_VALS<-length(which(combined_gene_metric_per_sample_all_small$all_genes=="WT"))
+    splice_vals_norm[cancer,"MUT_ov_WT"]<-mean(MUT_SA,na.rm=T)/mean(WT_SA,na.rm=T)
+    splice_vals_norm[cancer,"MUT_minus_WT"]<-(mean(MUT_SA,na.rm=T) - mean(WT_SA,na.rm=T))/sqrt(((sd(MUT_SA,na.rm=T)**2)+(sd(WT_SA,na.rm=T)**2))/2)
+    splice_vals_norm[cancer,"pvalue"]<-wilcox_test_val$p
+    splice_vals_norm[cancer,"MUT_COUNT"] <- MUT_VALS
+    splice_vals_norm[cancer,"WT_COUNT"] <- WT_VALS
+    
+  } else {
+    MUT_VALS<-length(which(combined_gene_metric_per_sample_all_small$all_genes=="MUT"))
+    WT_VALS<-length(which(combined_gene_metric_per_sample_all_small$all_genes=="WT"))
+    splice_vals_norm_MUT_ov_WT[cancer,"MUT_ov_WT"]<-NA
+    splice_vals_norm[cancer,"MUT_COUNT"] <- MUT_VALS
+    splice_vals_norm[cancer,"WT_COUNT"] <- WT_VALS
+  }
+  
+  for (j in seq(length(splicing_factor_genes))){
+    gene <- splicing_factor_genes[j]
+    gene_metric_av_gene_df <- data.frame(SA_PUR_div=combined_gene_metric_per_sample_all_small$SA_PUR_div,
+                                   gene=combined_gene_metric_per_sample_all_small[,gene])
+    WT_NUM <- length(gene_metric_av_gene_df$SA_PUR_div[gene_metric_av_gene_df$gene=="WT"])
+    MUT_NUM <- length(gene_metric_av_gene_df$SA_PUR_div[gene_metric_av_gene_df$gene=="MUT"])
+    if (!(WT_NUM>2 & MUT_NUM>2)){
+      a<-c(rep(NA,8),cancer,gene,NA,NA,
+           length(gene_metric_av_gene_df$SA_PUR_div[gene_metric_av_gene_df$gene=="WT"]),
+                  length(gene_metric_av_gene_df$SA_PUR_div[gene_metric_av_gene_df$gene=="MUT"]))
+    } else {
+      a<-compare_means(SA_PUR_div~gene,data=gene_metric_av_gene_df)
+      a$cancer <- cancer
+      a$gene <- gene
+      a$mut_ov_wt <- mean(gene_metric_av_gene_df$SA_PUR_div[gene_metric_av_gene_df$gene=="MUT"],na.rm=T)/mean(gene_metric_av_gene_df$SA_PUR_div[gene_metric_av_gene_df$gene=="WT"],na.rm=T)
+      a$mut_wt_cohens_d <- cohens_d(data=gene_metric_av_gene_df,SA_PUR_div~gene)
+      a$WT_NUM <- length(gene_metric_av_gene_df$SA_PUR_div[gene_metric_av_gene_df$gene=="WT"])
+      a$MUT_NUM <- length(gene_metric_av_gene_df$SA_PUR_div[gene_metric_av_gene_df$gene=="MUT"])
+      a<-data.frame(a)
+    }
+    if (i == 1){
+      all_comps <- a
+    } else {
+      all_comps <- rbind(all_comps,a)
+    }
+  }
+}
+
+for (j in seq(length(splicing_factor_genes))){
+  gene <- splicing_factor_genes[j]
+  gene_metric_av_gene_df <- data.frame(SA_PUR_div=combined_gene_metric_per_sample_all$SA_PUR_div,
+                                 gene=combined_gene_metric_per_sample_all[,gene])
+  if (length(unique(gene_metric_av_gene_df$gene))==1){
+    a<-rep(NA,14)
+  } else {
+    a<-compare_means(SA_PUR_div~gene,data=gene_metric_av_gene_df)
+    a$cancer <- "all"
+    a$gene <- gene
+    a$mut_ov_wt <- mean(gene_metric_av_gene_df$SA_PUR_div[gene_metric_av_gene_df$gene=="MUT"],na.rm=T)/mean(gene_metric_av_gene_df$SA_PUR_div[gene_metric_av_gene_df$gene=="WT"],na.rm=T)
+    a$mut_wt_cohens_d <- cohens_d(data=gene_metric_av_gene_df,SA_PUR_div~gene)
+    a$WT_NUM <- length(gene_metric_av_gene_df$SA_PUR_div[gene_metric_av_gene_df$gene=="WT"])
+    a$MUT_NUM <- length(gene_metric_av_gene_df$SA_PUR_div[gene_metric_av_gene_df$gene=="MUT"])
+    a<-data.frame(a)
+  }
+  if (j == 1){
+    all_comps_all_samples <- a
+  } else {
+    all_comps_all_samples <- rbind(all_comps_all_samples,a)
+  }
+}
+
+colnames(splice_vals_norm)<-c("cancer","MUT_ov_WT","MUT_minus_WT_cohens_d","pvalue","MUT_COUNT","WT_COUNT")
+
+ggplot(splice_vals_norm,aes(x=MUT_minus_WT_cohens_d,y=-log10(pvalue),color=sprintf("%s:%d/%d",cancer,MUT_COUNT,WT_COUNT),label=cancer))+
+  geom_point()+
+  geom_text_repel()+
+  geom_hline(yintercept=-log10(0.05))+
+  labs(color="cancer: MUT_count/WT_count")+
+  xlab("Cohens d")
+
+```
+
+
+```{r,fig.width=6,fig.height=3}
+
+figure_dir <- "./figures"
+
+wilcox_test_val_all_pre <- wilcox_test_val_all
+cohens_d <- calculate_cohens_d(wilcox_test_val_all_pre,c("cancer"),"all_genes",combined_gene_metric_per_sample_all)
+wilcox_test_val_all_pre$cohens_d <- format(round(cohens_d$cohens_d, 2), nsmall = 2)
+wilcox_test_val_all_pre$p.format.round <- formatC(as.numeric(wilcox_test_val_all_pre$p.format), format = "e", digits = 2)
+wilcox_test_val_filt <- wilcox_test_val_all_pre %>% dplyr::filter(p.signif != "ns")
+
+png(sprintf("%s/%s",figure_dir,"Fig4C.png"),width = 800, height = 300)
+
+ggplot(combined_gene_metric_per_sample_all,aes(x=all_genes,y=SA_PUR_div))+
+  facet_grid(~cancer)+
+  geom_boxplot(aes(fill=all_genes))+
+  add_pvalue(wilcox_test_val_filt,label="{cohens_d}\n{p.signif}",
+             remove.bracket = TRUE,
+             y.position=max(combined_gene_metric_per_sample_all$SA_PUR_div,na.rm=T)+0.1,
+             label.size=6)+
+  theme(text = element_text(size = 20))+
+  xlab("all genes")+
+  ylab("splicing antigenicity")+
+  theme(text=element_text(size=15),
+        legend.text = element_text(size=15),
+        legend.position="bottom",
+        strip.text.x = element_text(size = 15),
+        axis.text.x = element_blank(),
+        axis.title.x=element_blank(),
+        axis.title.y=element_text(size = 15),
+        axis.text.y=element_text(size = 15))+
+  labs(fill='Splicing Factor Genes')+
+  ylim(c(0,4))
+
+dev.off()
+
+```
+
+
+```{r,fig.width=6,fig.height=3}
+
+write.csv(splice_vals,
+            file="./intermediates/cohens_d_SF.csv")
+saveRDS(all_comps_all_samples,
+          file="./intermediates/SF_all_comparisons_all_samples.rds")
+write.csv(all_comps_all_samples,
+          file="./intermediates/SF_all_comparisons_all_samples.csv")
+saveRDS(all_comps,
+          file="./intermediates/SF_all_comparisons.rds")
+write.csv(all_comps,
+          file="./intermediates/SF_all_comparisons.csv")
+
+```
+
+# Citations
+
+1. Immunity. Volume 48 p1-19, 17 April 2018 10.1016/j.immuni.2018.03.023
+2. Seiler, Michael et al. “Somatic Mutational Landscape of Splicing Factor Genes and Their Functional Consequences across 33 Cancer Types.” Cell reports vol. 23,1 (2018): 282-296.e4. doi:10.1016/j.celrep.2018.01.088
