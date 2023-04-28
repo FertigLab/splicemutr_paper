@@ -1346,7 +1346,7 @@ splice_vals_norm <- data.frame(cancer=cancers)
 rownames(splice_vals_norm) <- cancers
 
 # Ben Ho Park genes: SF3B1, U2AF1 or SRSF2
-splice_maf_data <- readRDS("./input_data/TCGA_cancers/JHPCE/filter_maf/output/splicing_factor_data.maf.rds")
+splice_maf_data <- readRDS("./input_data/splicing_factor_data.maf.rds")
 splice_maf_data$sample_ID <- vapply(TCGAbarcode(splice_maf_data$Tumor_Sample_Barcode,sample=T),
                                        function(val){substr(val,1,nchar(val)-1)},character(1))
 splice_maf_data_filt <- splice_maf_data[splice_maf_data$sample_ID %in% combined_gene_metric_per_sample_all$sample,]
@@ -1502,7 +1502,7 @@ splice_vals_norm <- data.frame(cancer=cancers)
 rownames(splice_vals_norm) <- cancers
 
 # Ben Ho Park genes: SF3B1, U2AF1 or SRSF2
-splice_maf_data <- readRDS("./input_data/TCGA_cancers/JHPCE/filter_maf/output/splicing_factor_data.maf.rds")
+splice_maf_data <- readRDS("./input_data/splicing_factor_data.maf.rds")
 splice_maf_data$sample_ID <- vapply(TCGAbarcode(splice_maf_data$Tumor_Sample_Barcode,sample=T),
                                        function(val){substr(val,1,nchar(val)-1)},character(1))
 splice_maf_data_filt <- splice_maf_data[splice_maf_data$sample_ID %in% combined_gene_metric_per_sample_all$sample,]
