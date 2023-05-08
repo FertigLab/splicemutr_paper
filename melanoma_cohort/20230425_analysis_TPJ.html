@@ -3055,7 +3055,8 @@ library(effectsize)</code></pre>
 <pre><code>## The following object is masked from &#39;package:dplyr&#39;:
 ## 
 ##     combine</code></pre>
-<pre class="r"><code>library(estimate)</code></pre>
+<pre class="r"><code>library(estimate)
+library(ggforce)</code></pre>
 </div>
 <div id="internal-functions" class="section level1">
 <h1>Internal Functions</h1>
@@ -3120,8 +3121,8 @@ to Ipilimumab</h2>
 <pre class="r"><code>manifest_table &lt;- data.frame(table(manifest$AX_PriorIPI[manifest$AX_TIMETEMP==&quot;PRE&quot; &amp; manifest$AX_BOR3!=&quot;NE&quot;]))
 manifest_table$Var1 &lt;- c(&quot;No previous IPI&quot;,&quot;Previous IPI&quot;)
 datatable(manifest_table)</code></pre>
-<div class="datatables html-widget html-fill-item-overflow-hidden html-fill-item" id="htmlwidget-fb162e7b7ca492f95722" style="width:100%;height:auto;"></div>
-<script type="application/json" data-for="htmlwidget-fb162e7b7ca492f95722">{"x":{"filter":"none","vertical":false,"data":[["1","2"],["No previous IPI","Previous IPI"],[28,26]],"container":"<table class=\"display\">\n  <thead>\n    <tr>\n      <th> <\/th>\n      <th>Var1<\/th>\n      <th>Freq<\/th>\n    <\/tr>\n  <\/thead>\n<\/table>","options":{"columnDefs":[{"className":"dt-right","targets":2},{"orderable":false,"targets":0}],"order":[],"autoWidth":false,"orderClasses":false}},"evals":[],"jsHooks":[]}</script>
+<div class="datatables html-widget html-fill-item-overflow-hidden html-fill-item" id="htmlwidget-19f9bd59668b89f46806" style="width:100%;height:auto;"></div>
+<script type="application/json" data-for="htmlwidget-19f9bd59668b89f46806">{"x":{"filter":"none","vertical":false,"data":[["1","2"],["No previous IPI","Previous IPI"],[28,26]],"container":"<table class=\"display\">\n  <thead>\n    <tr>\n      <th> <\/th>\n      <th>Var1<\/th>\n      <th>Freq<\/th>\n    <\/tr>\n  <\/thead>\n<\/table>","options":{"columnDefs":[{"className":"dt-right","targets":2},{"orderable":false,"targets":0}],"order":[],"autoWidth":false,"orderClasses":false}},"evals":[],"jsHooks":[]}</script>
 </div>
 </div>
 <div id="estimate-calculations" class="section level1">
@@ -3172,7 +3173,8 @@ estimateScore(output_file,output_estimate_file,platform=&quot;illumina&quot;)</c
 colnames(ESTIMATE_scores)&lt;-ESTIMATE_scores[&quot;NAME&quot;,]
 ESTIMATE_scores&lt;-data.frame(ESTIMATE_scores[seq(3,nrow(ESTIMATE_scores)),])
 max_estimate &lt;- max(as.numeric(ESTIMATE_scores$ESTIMATEScore))
-ESTIMATE_scores$pseudo_purity &lt;- 1 - (as.numeric(ESTIMATE_scores$ESTIMATEScore))/(max_estimate+(max_estimate*0.1))
+ESTIMATE_scores$pseudo_purity &lt;- 1 - (as.numeric(ESTIMATE_scores$ESTIMATEScore))/(max_estimate+(max_estimate*.Machine
+$double.eps))
 ESTIMATE_scores$tumor_purity &lt;- cos(0.6049872018+(0.0001467884*as.numeric(ESTIMATE_scores$ESTIMATEScore)))
 ESTIMATE_scores$sample &lt;- colnames(featurecounts_data)[seq(2,ncol(featurecounts_data))]
 rownames(ESTIMATE_scores)&lt;-ESTIMATE_scores$sample</code></pre>
@@ -3236,55 +3238,10 @@ manifest_PRE$TRTGRP &lt;- vapply(manifest_PRE$TRTGRP,function(treat){
   }
 },character(1))
 
-png(sprintf(&quot;%s/%s&quot;,figure_dir,&quot;FigS3B.png&quot;),width = 480, height = 300)
-
 manifest_PRE$SA_norm &lt;- manifest_PRE$SA_mean/manifest_PRE$pseudo_purity
 manifest_PRE_filt &lt;- manifest_PRE %&gt;% dplyr::filter(!is.infinite(SA_norm))
-wilcox_test_val &lt;- compare_means(SA_norm ~ AX_BOR3, p.adjust.method = &quot;BH&quot;, data=manifest_PRE_filt,group.by = &quot;TRTGRP&quot;)
-cohens_d &lt;- calculate_cohens_d(wilcox_test_val,c(&quot;TRTGRP&quot;),&quot;AX_BOR3&quot;,manifest_PRE_filt)</code></pre>
-<pre><code>## Warning: &#39;y&#39; is numeric but has only 2 unique values.
-##   If this is a grouping variable, convert it to a factor.
 
-## Warning: &#39;y&#39; is numeric but has only 2 unique values.
-##   If this is a grouping variable, convert it to a factor.
-
-## Warning: &#39;y&#39; is numeric but has only 2 unique values.
-##   If this is a grouping variable, convert it to a factor.</code></pre>
-<pre class="r"><code>max_PRE_norm &lt;- max(manifest_PRE_filt$SA_norm,na.rm=T)
-wilcox_test_val$y.position &lt;- rep(rep(max_PRE_norm,3)+seq(from=0,to=6,by=3),3)
-wilcox_test_val$cohens_d &lt;- format(round(cohens_d$cohens_d, 2), nsmall = 2)
-wilcox_test_val &lt;- wilcox_test_val %&gt;% dplyr::filter(p.adj&lt;0.05)
-if (nrow(wilcox_test_val)==0){
-  ggplot(manifest_PRE_filt,aes(x=AX_BOR3,y=SA_norm))+
-  geom_boxplot(aes(fill=AX_BOR3))+facet_grid(.~TRTGRP)+geom_point()+
-  ylab(&quot;SA norm. PRE-treatment&quot;)+
-  xlab(&quot;Response&quot;)+
-  theme(legend.position = &quot;bottom&quot;,
-        text = element_text(size = 20),
-        axis.text.x=element_blank(),
-        axis.title.x=element_blank())+
-  guides(fill=guide_legend(title=&quot;Response&quot;))+
-  ylim(c(0,max_PRE_norm+14))
-
-} else {
-  ggplot(manifest_PRE_filt,aes(x=AX_BOR3,y=SA_norm))+
-    geom_boxplot(aes(fill=AX_BOR3))+facet_grid(.~TRTGRP)+geom_point()+
-    add_pvalue(wilcox_test_val,label=&quot;d={cohens_d}\n{p.signif}&quot;, remove.bracket = FALSE,label.size=6) +
-    ylab(&quot;SA norm. PRE-treatment&quot;)+
-    xlab(&quot;Response&quot;)+
-    theme(legend.position = &quot;bottom&quot;,
-          text = element_text(size = 20),
-          axis.text.x=element_blank(),
-          axis.title.x=element_blank())+
-    guides(fill=guide_legend(title=&quot;Response&quot;))+
-  ylim(c(0,max_PRE_norm+14))
-
-}
-
-dev.off()</code></pre>
-<pre><code>## quartz_off_screen 
-##                 2</code></pre>
-<pre class="r"><code>png(sprintf(&quot;%s/%s&quot;,figure_dir,&quot;FigS3C.png&quot;),width = 480/1.5, height = 300/1.25)
+png(sprintf(&quot;%s/%s&quot;,figure_dir,&quot;FigS3C.png&quot;),width = 480, height = 300)
 
 wilcox_test_val &lt;- compare_means(SA_norm ~ AX_BOR3, p.adjust.method = &quot;BH&quot;, data=manifest_PRE_filt)
 max_PRE_norm &lt;- max(manifest_PRE_filt$SA_norm,na.rm=T)
@@ -3292,30 +3249,30 @@ wilcox_test_val$y.position &lt;- rep(max_PRE_norm,3)+seq(from=3,to=9,by=3)
 cohens_d &lt;- calculate_cohens_d(wilcox_test_val,c(),&quot;AX_BOR3&quot;,manifest_PRE_filt)
 wilcox_test_val$cohens_d &lt;- format(round(cohens_d$cohens_d, 2), nsmall = 2)
 wilcox_test_val &lt;- wilcox_test_val %&gt;% dplyr::filter(p&lt;0.05)
-if (nrow(wilcox_test_val)==0){
+if (nrow(wilcox_test_val)!=0){
   ggplot(manifest_PRE_filt,aes(x=AX_BOR3,y=SA_norm))+
     geom_boxplot(aes(fill=AX_BOR3))+geom_point()+
-    add_pvalue(wilcox_test_val,label=&quot;d={cohens_d}\n{p.signif}&quot;, remove.bracket = FALSE,label.size=6)+
+    add_pvalue(wilcox_test_val,label=&quot;{p.signif},d={cohens_d}&quot;, remove.bracket = FALSE,label.size=6)+
     ylab(&quot;SA normalized PRE treatment&quot;)+
-    xlab(&quot;Response&quot;)+
+    xlab(&quot;response&quot;)+
     theme(legend.position = &quot;right&quot;,
           text = element_text(size = 20),
           axis.text.x=element_blank(),
           axis.title.x=element_blank())+
-    guides(fill=guide_legend(title=&quot;Response&quot;))+
+    guides(fill=guide_legend(title=&quot;response&quot;))+
   ylim(c(0,max_PRE_norm+14))
   
 } else {
   ggplot(manifest_PRE_filt,aes(x=AX_BOR3,y=SA_norm))+
     geom_boxplot(aes(fill=AX_BOR3))+geom_point()+
-    add_pvalue(wilcox_test_val, label = &quot;d={cohens_d}\n{p.signif}&quot;, remove.bracket = FALSE,label.size=6)+
+    add_pvalue(wilcox_test_val, label = &quot;{p.signif},d={cohens_d}&quot;, remove.bracket = FALSE,label.size=6)+
     ylab(&quot;SA norm. PRE treatment&quot;)+
-    xlab(&quot;Response&quot;)+
+    xlab(&quot;response&quot;)+
     theme(legend.position = &quot;right&quot;,
           text = element_text(size = 15),
           axis.text.x=element_blank(),
           axis.title.x=element_blank())+
-    guides(fill=guide_legend(title=&quot;Response&quot;))+
+    guides(fill=guide_legend(title=&quot;response&quot;))+
   ylim(c(0,max_PRE_norm+14))
   
 }
@@ -3323,290 +3280,7 @@ if (nrow(wilcox_test_val)==0){
 dev.off()</code></pre>
 <pre><code>## quartz_off_screen 
 ##                 2</code></pre>
-<pre class="r"><code># png(sprintf(&quot;%s/%s&quot;,figure_dir,&quot;SA_mean_PRE.png&quot;),width = 480, height = 300)
-# 
-# manifest_PRE_filt &lt;- manifest_PRE %&gt;% dplyr::filter(!is.infinite(SA_norm))
-# wilcox_test_val &lt;- compare_means(SA_mean ~ AX_BOR3, p.adjust.method = &quot;BH&quot;, data=manifest_PRE_filt,group.by = &quot;TRTGRP&quot;)
-# max_PRE_mean &lt;- max(manifest_PRE_filt$SA_mean,na.rm=T)
-# wilcox_test_val$y.position &lt;- rep(rep(max_PRE_mean,3)+seq(from=1,to=3,by=1),3)
-# cohens_d &lt;- calculate_cohens_d(wilcox_test_val,c(&quot;TRTGRP&quot;),&quot;AX_BOR3&quot;,manifest_PRE_filt)
-# wilcox_test_val$cohens_d &lt;- format(round(cohens_d$cohens_d, 2), nsmall = 2)
-# wilcox_test_val &lt;- wilcox_test_val %&gt;% dplyr::filter(p.adj&lt;0.05)
-# 
-# if (nrow(wilcox_test_val)==0){
-#   ggplot(manifest_PRE_filt,aes(x=AX_BOR3,y=SA_mean))+
-#     geom_boxplot(aes(fill=AX_BOR3))+facet_grid(.~TRTGRP)+geom_point()+
-#     ylab(&quot;SA mean PRE-treatment&quot;)+
-#     xlab(&quot;Response&quot;)+
-#     theme(legend.position = &quot;bottom&quot;,
-#           text = element_text(size = 20),
-#           axis.text.x=element_blank(),
-#           axis.title.x=element_blank())+
-#     guides(fill=guide_legend(title=&quot;Response&quot;))
-# } else {
-#   ggplot(manifest_PRE_filt,aes(x=AX_BOR3,y=SA_mean))+
-#     geom_boxplot(aes(fill=AX_BOR3))+facet_grid(.~TRTGRP)+geom_point()+
-#     add_pvalue(wilcox_test_val, label = &quot;p={p.adj},d={cohens_d}&quot;, remove.bracket = FALSE,label.size=4)+
-#     ylab(&quot;SA mean PRE-treatment&quot;)+
-#     xlab(&quot;Response&quot;)+
-#     theme(legend.position = &quot;bottom&quot;,
-#           text = element_text(size = 20),
-#           axis.text.x=element_blank(),
-#           axis.title.x=element_blank())+
-#     guides(fill=guide_legend(title=&quot;Response&quot;))
-# }
-# 
-# dev.off()
-
-# png(sprintf(&quot;%s/%s&quot;,figure_dir,&quot;SA_mean_PRE_all.png&quot;),width = 480/1.5, height = 300/1.25)
-# 
-# wilcox_test_val &lt;- compare_means(SA_mean ~ AX_BOR3, p.adjust.method = &quot;BH&quot;, data=manifest_PRE_filt)
-# wilcox_test_val$y.position &lt;- rep(max_PRE_mean,3)+seq(from=1,to=3,by=1)
-# cohens_d &lt;- calculate_cohens_d(wilcox_test_val,c(),&quot;AX_BOR3&quot;,manifest_PRE_filt)
-# wilcox_test_val$cohens_d &lt;- format(round(cohens_d$cohens_d, 2), nsmall = 2)
-# wilcox_test_val &lt;- wilcox_test_val %&gt;% dplyr::filter(p&lt;0.05)
-# if (nrow(wilcox_test_val)==0){
-#   ggplot(manifest_PRE_filt,aes(x=AX_BOR3,y=SA_mean))+
-#     geom_boxplot(aes(fill=AX_BOR3))+geom_point()+
-#     ylab(&quot;SA mean PRE-treatment&quot;)+
-#     xlab(&quot;Response&quot;)+
-#     theme(legend.position = &quot;right&quot;,
-#           text = element_text(size = 20),
-#           axis.text.x=element_blank(),
-#           axis.title.x=element_blank())+
-#     guides(fill=guide_legend(title=&quot;Response&quot;))
-# } else {
-#   ggplot(manifest_PRE_filt,aes(x=AX_BOR3,y=SA_mean))+
-#     geom_boxplot(aes(fill=AX_BOR3))+geom_point()+
-#     ylab(&quot;SA mean PRE-treatment&quot;)+
-#     xlab(&quot;Response&quot;)+
-#     theme(legend.position = &quot;right&quot;,
-#           text = element_text(size = 20),
-#           axis.text.x=element_blank(),
-#           axis.title.x=element_blank())+
-#     guides(fill=guide_legend(title=&quot;Response&quot;))
-# }
-# 
-# dev.off()
-
-# png(sprintf(&quot;%s/%s&quot;,figure_dir,&quot;PP_PRE.png&quot;),width = 480, height = 300)
-# 
-# wilcox_test_val &lt;- compare_means(pseudo_purity ~ AX_BOR3, p.adjust.method = &quot;BH&quot;, data=manifest_PRE_filt,group.by = &quot;TRTGRP&quot;)
-# max_pseudo_purity &lt;- max(manifest_PRE_filt$pseudo_purity,na.rm=T)
-# wilcox_test_val$y.position &lt;- rep(rep(max_pseudo_purity,3)+seq(from=max_pseudo_purity/6,to=(max_pseudo_purity/6)*3,by=max_pseudo_purity/6),3)
-# cohens_d &lt;- calculate_cohens_d(wilcox_test_val,c(&quot;TRTGRP&quot;),&quot;AX_BOR3&quot;,manifest_PRE_filt)
-# wilcox_test_val$cohens_d &lt;- format(round(cohens_d$cohens_d, 2), nsmall = 2)
-# wilcox_test_val &lt;- wilcox_test_val %&gt;% dplyr::filter(p.adj&lt;0.05)
-# if (nrow(wilcox_test_val)==0){
-#   ggplot(manifest_PRE_filt,aes(x=AX_BOR3,y=pseudo_purity))+
-#     geom_boxplot(aes(fill=AX_BOR3))+geom_point()+facet_grid(.~TRTGRP)+
-#     ylab(&quot;Pseudo Purity PRE-treatment&quot;)+
-#     xlab(&quot;Response&quot;)+
-#     theme(legend.position = &quot;bottom&quot;,
-#           text = element_text(size = 20),
-#           axis.text.x=element_blank(),
-#           axis.title.x=element_blank())+
-#     guides(fill=guide_legend(title=&quot;Response&quot;))
-# } else {
-#     ggplot(manifest_PRE_filt,aes(x=AX_BOR3,y=pseudo_purity))+
-#     geom_boxplot(aes(fill=AX_BOR3))+geom_point()+facet_grid(.~TRTGRP)+
-#     add_pvalue(wilcox_test_val, label = &quot;p={p.adj},d={cohens_d}&quot;, remove.bracket = FALSE,label.size=4)+
-#     ylab(&quot;Pseudo Purity PRE-treatment&quot;)+
-#     xlab(&quot;Response&quot;)+
-#     theme(legend.position = &quot;bottom&quot;,
-#           text = element_text(size = 20),
-#           axis.text.x=element_blank(),
-#           axis.title.x=element_blank())+
-#     guides(fill=guide_legend(title=&quot;Response&quot;))
-# }
-# 
-# dev.off()
-
-# png(sprintf(&quot;%s/%s&quot;,figure_dir,&quot;PP_PRE_all.png&quot;),width = 480/1.5, height = 300/1.25)
-# 
-# wilcox_test_val &lt;- compare_means(pseudo_purity ~ AX_BOR3, p.adjust.method = &quot;BH&quot;, data=manifest_PRE_filt)
-# max_pseudo_purity &lt;- max(manifest_PRE_filt$pseudo_purity,na.rm=T)
-# wilcox_test_val$y.position &lt;- rep(max_pseudo_purity,3)+seq(from=max_pseudo_purity/6,to=(max_pseudo_purity/6)*3,by=max_pseudo_purity/6)
-# cohens_d &lt;- calculate_cohens_d(wilcox_test_val,c(),&quot;AX_BOR3&quot;,manifest_PRE_filt)
-# wilcox_test_val$cohens_d &lt;- format(round(cohens_d$cohens_d, 2), nsmall = 2)
-# wilcox_test_val &lt;- wilcox_test_val %&gt;% dplyr::filter(p&lt;0.05)
-# if (nrow(wilcox_test_val)==0){
-#   ggplot(manifest_PRE_filt,aes(x=AX_BOR3,y=pseudo_purity))+
-#     geom_boxplot(aes(fill=AX_BOR3))+geom_point()+
-#     ylab(&quot;Pseudo Purity PRE-treatment&quot;)+
-#     xlab(&quot;Response&quot;)+
-#     theme(legend.position = &quot;right&quot;,
-#           text = element_text(size = 20),
-#           axis.text.x=element_blank(),
-#           axis.title.x=element_blank())+
-#     guides(fill=guide_legend(title=&quot;Response&quot;))
-# } else {
-#   ggplot(manifest_PRE_filt,aes(x=AX_BOR3,y=pseudo_purity))+
-#     geom_boxplot(aes(fill=AX_BOR3))+geom_point()+
-#     add_pvalue(wilcox_test_val, label = &quot;p={p.format},d={cohens_d}&quot;, remove.bracket = FALSE,label.size=4)+
-#     ylab(&quot;Pseudo Purity PRE-treatment&quot;)+
-#     xlab(&quot;Response&quot;)+
-#     theme(legend.position = &quot;right&quot;,
-#           text = element_text(size = 20),
-#           axis.text.x=element_blank(),
-#           axis.title.x=element_blank())+
-#     guides(fill=guide_legend(title=&quot;Response&quot;))
-# }
-# 
-# dev.off()
-
-# png(sprintf(&quot;%s/%s&quot;,figure_dir,&quot;IM_PRE.png&quot;),width = 480, height = 300)
-# 
-# wilcox_test_val &lt;- compare_means(ImmuneScore ~ AX_BOR3, p.adjust.method = &quot;BH&quot;, data=manifest_PRE_filt,group.by = &quot;TRTGRP&quot;)
-# max_imm &lt;- max(manifest_PRE_filt$ImmuneScore,na.rm=T)
-# wilcox_test_val$y.position &lt;- rep(rep(max_imm,3)+seq(from=max_imm/6,to=(max_imm/6)*3,by=max_imm/6),3)
-# cohens_d &lt;- calculate_cohens_d(wilcox_test_val,c(&quot;TRTGRP&quot;),&quot;AX_BOR3&quot;,manifest_PRE_filt)
-# wilcox_test_val$cohens_d &lt;- format(round(cohens_d$cohens_d, 2), nsmall = 2)
-# wilcox_test_val &lt;- wilcox_test_val %&gt;% dplyr::filter(p.adj&lt;0.05)
-# if (nrow(wilcox_test_val)==0){
-#   ggplot(manifest_PRE_filt,aes(x=AX_BOR3,y=ImmuneScore))+
-#     geom_boxplot(aes(fill=AX_BOR3))+geom_point()+facet_grid(.~TRTGRP)+
-#     ylab(&quot;Imm. Score PRE-treatment&quot;)+
-#     xlab(&quot;Response&quot;)+
-#     theme(legend.position = &quot;bottom&quot;,
-#           text = element_text(size = 20),
-#           axis.text.x=element_blank(),
-#           axis.title.x=element_blank())+
-#     guides(fill=guide_legend(title=&quot;Response&quot;))
-# } else {
-#   ggplot(manifest_PRE_filt,aes(x=AX_BOR3,y=ImmuneScore))+
-#     geom_boxplot(aes(fill=AX_BOR3))+geom_point()+facet_grid(.~TRTGRP)+
-#     add_pvalue(wilcox_test_val, label = &quot;p={p.adj},d={cohens_d}&quot;, remove.bracket = FALSE,label.size=4)+
-#     ylab(&quot;Imm. Score PRE-treatment&quot;)+
-#     xlab(&quot;Response&quot;)+
-#     theme(legend.position = &quot;bottom&quot;,
-#           text = element_text(size = 20),
-#           axis.text.x=element_blank(),
-#           axis.title.x=element_blank())+
-#     guides(fill=guide_legend(title=&quot;Response&quot;))
-# }
-# 
-# dev.off()
-
-# png(sprintf(&quot;%s/%s&quot;,figure_dir,&quot;IM_PRE_all.png&quot;),width = 480/1.5, height = 300/1.25)
-# 
-# wilcox_test_val &lt;- compare_means(ImmuneScore ~ AX_BOR3, p.adjust.method = &quot;BH&quot;, data=manifest_PRE_filt)
-# max_imm &lt;- max(manifest_PRE_filt$ImmuneScore,na.rm=T)
-# wilcox_test_val$y.position &lt;- rep(max_imm,3)+seq(from=max_imm/6,to=(max_imm/6)*3,by=max_imm/6)
-# cohens_d &lt;- calculate_cohens_d(wilcox_test_val,c(),&quot;AX_BOR3&quot;,manifest_PRE_filt)
-# wilcox_test_val$cohens_d &lt;- format(round(cohens_d$cohens_d, 2), nsmall = 2)
-# wilcox_test_val &lt;- wilcox_test_val %&gt;% dplyr::filter(p&lt;0.05)
-# if (nrow(wilcox_test_val)==0){
-# ggplot(manifest_PRE_filt,aes(x=AX_BOR3,y=ImmuneScore))+
-#   geom_boxplot(aes(fill=AX_BOR3))+geom_point()+
-#   ylab(&quot;Imm. Score PRE-treatment&quot;)+
-#   xlab(&quot;Response&quot;)+
-#   theme(legend.position = &quot;right&quot;,
-#         text = element_text(size = 20),
-#         axis.text.x=element_blank(),
-#         axis.title.x=element_blank())+
-#   guides(fill=guide_legend(title=&quot;Response&quot;))
-# } else {
-#   ggplot(manifest_PRE_filt,aes(x=AX_BOR3,y=ImmuneScore))+
-#     geom_boxplot(aes(fill=AX_BOR3))+geom_point()+
-#     add_pvalue(wilcox_test_val, label = &quot;p={p.format},d={cohens_d}&quot;, remove.bracket = FALSE,label.size=4)+
-#     ylab(&quot;Imm. Score PRE-treatment&quot;)+
-#     xlab(&quot;Response&quot;)+
-#     theme(legend.position = &quot;right&quot;,
-#           text = element_text(size = 20),
-#           axis.text.x=element_blank(),
-#           axis.title.x=element_blank())+
-#     guides(fill=guide_legend(title=&quot;Response&quot;))
-# }
-# 
-# dev.off()
-
-# png(sprintf(&quot;%s/%s&quot;,figure_dir,&quot;ST_PRE.png&quot;),width = 480, height = 300)
-# 
-# wilcox_test_val &lt;- compare_means(StromalScore ~ AX_BOR3, p.adjust.method = &quot;BH&quot;, data=manifest_PRE_filt,group.by = &quot;TRTGRP&quot;)
-# max_strom &lt;- max(manifest_PRE_filt$StromalScore,na.rm=T)
-# wilcox_test_val$y.position &lt;- rep(rep(max_strom,3)+seq(from=max_strom/6,to=(max_strom/6)*3,by=max_strom/6),3)
-# cohens_d &lt;- calculate_cohens_d(wilcox_test_val,c(&quot;TRTGRP&quot;),&quot;AX_BOR3&quot;,manifest_PRE_filt)
-# wilcox_test_val$cohens_d &lt;- format(round(cohens_d$cohens_d, 2), nsmall = 2)
-# wilcox_test_val &lt;- wilcox_test_val %&gt;% dplyr::filter(p.adj&lt;0.05)
-# if (nrow(wilcox_test_val)==0){
-#   ggplot(manifest_PRE_filt,aes(x=AX_BOR3,y=StromalScore))+
-#     geom_boxplot(aes(fill=AX_BOR3))+geom_point()+facet_grid(.~TRTGRP)+
-#     ylab(&quot;Strom. Score PRE-treatment&quot;)+
-#     xlab(&quot;Response&quot;)+
-#     theme(legend.position = &quot;bottom&quot;,
-#           text = element_text(size = 20),
-#           axis.text.x=element_blank(),
-#           axis.title.x=element_blank())+
-#     guides(fill=guide_legend(title=&quot;Response&quot;))
-# } else {
-#   ggplot(manifest_PRE_filt,aes(x=AX_BOR3,y=StromalScore))+
-#     geom_boxplot(aes(fill=AX_BOR3))+geom_point()+facet_grid(.~TRTGRP)+
-#     add_pvalue(wilcox_test_val, label = &quot;p={p.adj},d={cohens_d}&quot;, remove.bracket = FALSE,label.size=4)+
-#     ylab(&quot;Strom. Score PRE-treatment&quot;)+
-#     xlab(&quot;Response&quot;)+
-#     theme(legend.position = &quot;bottom&quot;,
-#           text = element_text(size = 20),
-#           axis.text.x=element_blank(),
-#           axis.title.x=element_blank())+
-#     guides(fill=guide_legend(title=&quot;Response&quot;))
-# }
-# 
-# dev.off()
-
-# png(sprintf(&quot;%s/%s&quot;,figure_dir,&quot;ST_PRE_all.png&quot;),width = 480/1.5, height = 300/1.25)
-# 
-# wilcox_test_val &lt;- compare_means(StromalScore ~ AX_BOR3, p.adjust.method = &quot;BH&quot;, data=manifest_PRE_filt)
-# max_strom &lt;- max(manifest_PRE_filt$StromalScore,na.rm=T)
-# wilcox_test_val$y.position &lt;- rep(max_strom,3)+seq(from=max_strom/6,to=(max_strom/6)*3,by=max_strom/6)
-# cohens_d &lt;- calculate_cohens_d(wilcox_test_val,c(),&quot;AX_BOR3&quot;,manifest_PRE_filt)
-# wilcox_test_val$cohens_d &lt;- format(round(cohens_d$cohens_d, 2), nsmall = 2)
-# wilcox_test_val &lt;- wilcox_test_val %&gt;% dplyr::filter(p&lt;0.05)
-# if (nrow(wilcox_test_val)==0){
-# ggplot(manifest_PRE_filt,aes(x=AX_BOR3,y=StromalScore))+
-#   geom_boxplot(aes(fill=AX_BOR3))+geom_point()+
-#   ylab(&quot;Strom. Score PRE-treatment&quot;)+
-#   xlab(&quot;Response&quot;)+
-#   theme(legend.position = &quot;right&quot;,
-#         text = element_text(size = 20),
-#         axis.text.x=element_blank(),
-#         axis.title.x=element_blank())+
-#   guides(fill=guide_legend(title=&quot;Response&quot;))
-# 
-# } else {
-#   ggplot(manifest_PRE_filt,aes(x=AX_BOR3,y=StromalScore))+
-#     geom_boxplot(aes(fill=AX_BOR3))+geom_point()+
-#     add_pvalue(wilcox_test_val, label = &quot;p={p.format},d={cohens_d}&quot;, remove.bracket = FALSE,label.size=4)+
-#     ylab(&quot;Strom. Score PRE-treatment&quot;)+
-#     xlab(&quot;Response&quot;)+
-#     theme(legend.position = &quot;right&quot;,
-#           text = element_text(size = 20),
-#           axis.text.x=element_blank(),
-#           axis.title.x=element_blank())+
-#     guides(fill=guide_legend(title=&quot;Response&quot;))
-# }
-# 
-# dev.off()
-
-# png(sprintf(&quot;%s/%s&quot;,figure_dir,&quot;SA_mean_PP_PRE_all.png&quot;),width = 480, height = 300)
-# 
-# ggplot(manifest_PRE,aes(x=pseudo_purity,y=SA_mean))+geom_point()+
-#   stat_cor(method = &quot;kendall&quot;,label.x.npc=&quot;middle&quot;,label.y.npc=&quot;top&quot;,size = 5)+
-#   geom_smooth(method=&quot;lm&quot;,se=F)+
-#   theme(text = element_text(size = 20))
-# 
-# dev.off()
-
-# png(sprintf(&quot;%s/%s&quot;,figure_dir,&quot;SA_mean_PP_PRE.png&quot;),width = 480, height = 300)
-# 
-# ggplot(manifest_PRE,aes(x=pseudo_purity,y=SA_mean))+geom_point()+
-#   stat_cor(method = &quot;kendall&quot;,label.x.npc=&quot;left&quot;,label.y.npc=&quot;top&quot;,size = 4)+
-#   geom_smooth(method=&quot;lm&quot;,se=F)+facet_grid(AX_BOR3~TRTGRP)+
-#   theme(text = element_text(size = 20))
-# 
-# dev.off()
-
-png(sprintf(&quot;%s/%s&quot;,figure_dir,&quot;FigS3A.png&quot;),width = 480, height = 300)
+<pre class="r"><code>png(sprintf(&quot;%s/%s&quot;,figure_dir,&quot;FigS3A.png&quot;),width = 480, height = 300)
 
 ggplot(manifest_PRE,aes(x=pseudo_purity,y=SA_mean))+geom_point()+
   stat_cor(method = &quot;kendall&quot;,label.x.npc=&quot;left&quot;,label.y.npc=&quot;top&quot;,size = 5)+
@@ -3616,68 +3290,6 @@ ggplot(manifest_PRE,aes(x=pseudo_purity,y=SA_mean))+geom_point()+
 <pre class="r"><code>dev.off()</code></pre>
 <pre><code>## quartz_off_screen 
 ##                 2</code></pre>
-<pre class="r"><code># png(sprintf(&quot;%s/%s&quot;,figure_dir,&quot;SA_mean_IM_PRE_all.png&quot;),width = 480, height = 300)
-# 
-# ggplot(manifest_PRE,aes(x=ImmuneScore,y=SA_mean))+geom_point()+
-#   stat_cor(method = &quot;kendall&quot;,label.x.npc=&quot;middle&quot;,label.y.npc=&quot;top&quot;,size = 5)+
-#   geom_smooth(method=&quot;lm&quot;,se=F)+
-#   theme(text = element_text(size = 20))
-# 
-# dev.off()
-
-# png(sprintf(&quot;%s/%s&quot;,figure_dir,&quot;SA_mean_IM_PRE.png&quot;),width = 480, height = 300)
-# 
-# ggplot(manifest_PRE,aes(x=ImmuneScore,y=SA_mean))+geom_point()+
-#   stat_cor(method = &quot;kendall&quot;,label.x.npc=&quot;left&quot;,label.y.npc=&quot;top&quot;,size = 4)+
-#   geom_smooth(method=&quot;lm&quot;,se=F)+facet_grid(AX_BOR3~TRTGRP)+
-#   theme(text = element_text(size = 20))
-# 
-# dev.off()
-
-# png(sprintf(&quot;%s/%s&quot;,figure_dir,&quot;SA_mean_IM_PRE_resp.png&quot;),width = 480, height = 300)
-# 
-# ggplot(manifest_PRE,aes(x=ImmuneScore,y=SA_mean))+geom_point()+
-#   stat_cor(method = &quot;kendall&quot;,label.x.npc=&quot;left&quot;,label.y.npc=&quot;top&quot;,size = 5)+
-#   geom_smooth(method=&quot;lm&quot;,se=F)+facet_grid(AX_BOR3~.)+
-#   theme(text = element_text(size = 20))
-# 
-# dev.off()
-
-# png(sprintf(&quot;%s/%s&quot;,figure_dir,&quot;SA_mean_ST_PRE_all.png&quot;),width = 480, height = 300)
-# 
-# ggplot(manifest_PRE,aes(x=StromalScore,y=SA_mean))+geom_point()+
-#   stat_cor(method = &quot;kendall&quot;,label.x.npc=&quot;middle&quot;,label.y.npc=&quot;top&quot;,size = 5)+
-#   geom_smooth(method=&quot;lm&quot;,se=F)+
-#   theme(text = element_text(size = 20))
-# 
-# dev.off()
-
-# png(sprintf(&quot;%s/%s&quot;,figure_dir,&quot;SA_mean_ST_PRE.png&quot;),width = 480, height = 300)
-# 
-# ggplot(manifest_PRE,aes(x=StromalScore,y=SA_mean))+geom_point()+
-#   stat_cor(method = &quot;kendall&quot;,label.x.npc=&quot;left&quot;,label.y.npc=&quot;top&quot;,size = 5)+
-#   geom_smooth(method=&quot;lm&quot;,se=F)+facet_grid(AX_BOR3~TRTGRP)+
-#   theme(text = element_text(size = 20))
-# 
-# dev.off()
-
-# png(sprintf(&quot;%s/%s&quot;,figure_dir,&quot;SA_mean_ST_PRE_resp.png&quot;),width = 480, height = 300)
-# 
-# ggplot(manifest_PRE,aes(x=StromalScore,y=SA_mean))+geom_point()+
-#   stat_cor(method = &quot;kendall&quot;,label.x.npc=&quot;left&quot;,label.y.npc=&quot;top&quot;,size = 5)+
-#   geom_smooth(method=&quot;lm&quot;,se=F)+facet_grid(AX_BOR3~.)+
-#   theme(text = element_text(size = 20))
-# 
-# dev.off()
-
-# png(sprintf(&quot;%s/%s&quot;,figure_dir,&quot;PP_TP_PRE_all.png&quot;),width = 480, height = 300)
-# 
-# ggplot(manifest_PRE,aes(x=tumor_purity,y=pseudo_purity))+geom_point()+
-#   stat_cor(method = &quot;kendall&quot;,label.x.npc=&quot;middle&quot;,label.y.npc=&quot;top&quot;,size = 5)+
-#   geom_smooth(method=&quot;lm&quot;,se=F)+
-#   theme(text = element_text(size = 20))
-# 
-# dev.off()</code></pre>
 </div>
 <div id="evaluating-the-splicing-antigenicity-post-treatment" class="section level1">
 <h1>Evaluating the splicing antigenicity POST treatment</h1>
@@ -3738,369 +3350,54 @@ manifest_POST$TRTGRP &lt;- vapply(manifest_POST$TRTGRP,function(treat){
   }
 },character(1))
 
-png(sprintf(&quot;%s/%s&quot;,figure_dir,&quot;Fig5B.png&quot;),width = 480, height = 300)
 
 manifest_POST$SA_norm &lt;- manifest_POST$SA_mean/manifest_POST$pseudo_purity
 manifest_POST_filt &lt;- manifest_POST %&gt;% dplyr::filter(!is.infinite(SA_norm))
-wilcox_test_val &lt;- compare_means(SA_norm ~ AX_BOR3, p.adjust.method = &quot;BH&quot;, data=manifest_POST_filt,group.by = &quot;TRTGRP&quot;)
-cohens_d &lt;- calculate_cohens_d(wilcox_test_val,c(&quot;TRTGRP&quot;),&quot;AX_BOR3&quot;,manifest_POST_filt)
-max_POST_norm &lt;- max(manifest_POST_filt$SA_norm,na.rm=T)
-wilcox_test_val$y.position &lt;- rep(rep(max_POST_norm,3)+seq(from=0,to=6,by=3),3)
-wilcox_test_val$cohens_d &lt;- format(round(cohens_d$cohens_d, 2), nsmall = 2)
-wilcox_test_val &lt;- wilcox_test_val %&gt;% dplyr::filter(p.adj&lt;0.05)
-if (nrow(wilcox_test_val)==0){
-  ggplot(manifest_POST_filt,aes(x=AX_BOR3,y=SA_norm))+
-  geom_boxplot(aes(fill=AX_BOR3))+facet_grid(.~TRTGRP)+geom_point()+
-  ylab(&quot;SA norm. POST-treatment&quot;)+
-  xlab(&quot;Response&quot;)+
-  theme(legend.position = &quot;bottom&quot;,
-        text = element_text(size = 20),
-        axis.text.x=element_blank(),
-        axis.title.x=element_blank())+
-  guides(fill=guide_legend(title=&quot;Response&quot;))+
-  ylim(c(0,max_POST_norm+14))
 
-} else {
-  ggplot(manifest_POST_filt,aes(x=AX_BOR3,y=SA_norm))+
-    geom_boxplot(aes(fill=AX_BOR3))+facet_grid(.~TRTGRP)+geom_point()+
-    add_pvalue(wilcox_test_val,label=&quot;d={cohens_d}\n{p.signif}&quot;, remove.bracket = FALSE,label.size=6) +
-    ylab(&quot;SA norm. POST-treatment&quot;)+
-    xlab(&quot;Response&quot;)+
-    theme(legend.position = &quot;bottom&quot;,
-          text = element_text(size = 20),
-          axis.text.x=element_blank(),
-          axis.title.x=element_blank())+
-    guides(fill=guide_legend(title=&quot;Response&quot;))+
-  ylim(c(0,max_POST_norm+14))
+png(sprintf(&quot;%s/%s&quot;,figure_dir,&quot;Fig5C.png&quot;),width = 480, height = 300)
 
-}
 
-dev.off()</code></pre>
-<pre><code>## quartz_off_screen 
-##                 2</code></pre>
-<pre class="r"><code>png(sprintf(&quot;%s/%s&quot;,figure_dir,&quot;Fig5C.png&quot;),width = 480/1.5, height = 300/1.25)
-
-wilcox_test_val &lt;- compare_means(SA_norm ~ AX_BOR3, p.adjust.method = &quot;BH&quot;, data=manifest_POST_filt)
-max_POST_norm &lt;- max(manifest_POST_filt$SA_norm,na.rm=T)
-wilcox_test_val$y.position &lt;- rep(max_POST_norm,3)+seq(from=3,to=9,by=3)
-cohens_d &lt;- calculate_cohens_d(wilcox_test_val,c(),&quot;AX_BOR3&quot;,manifest_POST_filt)
+quantile_values &lt;- unname(quantile(manifest_POST_filt$SA_norm, probs = c(.05, .95)))
+manifest_POST_filt_filt &lt;- manifest_POST_filt %&gt;% dplyr::filter(pseudo_purity &gt;= 0.01)
+wilcox_test_val &lt;- compare_means(SA_norm ~ AX_BOR3, p.adjust.method = &quot;BH&quot;, data=manifest_POST_filt_filt)
+max_POST_norm &lt;- max(manifest_POST_filt_filt$SA_norm,na.rm=T)
+wilcox_test_val$y.position &lt;- 2.5
+cohens_d &lt;- calculate_cohens_d(wilcox_test_val,c(),&quot;AX_BOR3&quot;,manifest_POST_filt_filt)
 wilcox_test_val$cohens_d &lt;- format(round(cohens_d$cohens_d, 2), nsmall = 2)
 wilcox_test_val &lt;- wilcox_test_val %&gt;% dplyr::filter(p&lt;0.05)
-if (nrow(wilcox_test_val)==0){
-  ggplot(manifest_POST_filt,aes(x=AX_BOR3,y=SA_norm))+
+if (!nrow(wilcox_test_val)==0){
+  ggplot(manifest_POST_filt_filt,aes(x=AX_BOR3,y=log10(SA_norm)))+
     geom_boxplot(aes(fill=AX_BOR3))+geom_point()+
-    add_pvalue(wilcox_test_val,label=&quot;d={cohens_d}\n{p.signif}&quot;, remove.bracket = FALSE,label.size=6)+
+    add_pvalue(wilcox_test_val,label=&quot;{p.signif},d={cohens_d}&quot;, remove.bracket = FALSE,label.size=6)+
     ylab(&quot;SA normalized POST treatment&quot;)+
-    xlab(&quot;Response&quot;)+
+    xlab(&quot;response&quot;)+
     theme(legend.position = &quot;right&quot;,
-          text = element_text(size = 20),
+          text = element_text(size = 15),
           axis.text.x=element_blank(),
           axis.title.x=element_blank())+
-    guides(fill=guide_legend(title=&quot;Response&quot;))+
-  ylim(c(0,max_POST_norm+14))
+    guides(fill=guide_legend(title=&quot;response&quot;))+
+  ylim(c(0,3))
   
 } else {
   ggplot(manifest_POST_filt,aes(x=AX_BOR3,y=SA_norm))+
     geom_boxplot(aes(fill=AX_BOR3))+geom_point()+
     add_pvalue(wilcox_test_val, label = &quot;d={cohens_d}\n{p.signif}&quot;, remove.bracket = FALSE,label.size=6)+
     ylab(&quot;SA norm. POST treatment&quot;)+
-    xlab(&quot;Response&quot;)+
+    xlab(&quot;response&quot;)+
     theme(legend.position = &quot;right&quot;,
           text = element_text(size = 15),
           axis.text.x=element_blank(),
           axis.title.x=element_blank())+
-    guides(fill=guide_legend(title=&quot;Response&quot;))+
+    guides(fill=guide_legend(title=&quot;response&quot;))+
   ylim(c(0,max_POST_norm+14))
   
-}
-
-dev.off()</code></pre>
+}</code></pre>
+<pre><code>## Warning: Removed 6 rows containing non-finite values (`stat_boxplot()`).</code></pre>
+<pre><code>## Warning: Removed 6 rows containing missing values (`geom_point()`).</code></pre>
+<pre class="r"><code>dev.off()</code></pre>
 <pre><code>## quartz_off_screen 
 ##                 2</code></pre>
-<pre class="r"><code># png(sprintf(&quot;%s/%s&quot;,figure_dir,&quot;SA_mean_POST.png&quot;),width = 480, height = 300)
-# 
-# manifest_POST_filt &lt;- manifest_POST %&gt;% dplyr::filter(!is.infinite(SA_norm))
-# wilcox_test_val &lt;- compare_means(SA_mean ~ AX_BOR3, p.adjust.method = &quot;BH&quot;, data=manifest_POST_filt,group.by = &quot;TRTGRP&quot;)
-# max_POST_mean &lt;- max(manifest_POST_filt$SA_mean,na.rm=T)
-# wilcox_test_val$y.position &lt;- rep(rep(max_POST_mean,3)+seq(from=1,to=3,by=1),3)
-# cohens_d &lt;- calculate_cohens_d(wilcox_test_val,c(&quot;TRTGRP&quot;),&quot;AX_BOR3&quot;,manifest_POST_filt)
-# wilcox_test_val$cohens_d &lt;- format(round(cohens_d$cohens_d, 2), nsmall = 2)
-# wilcox_test_val &lt;- wilcox_test_val %&gt;% dplyr::filter(p.adj&lt;0.05)
-# 
-# if (nrow(wilcox_test_val)==0){
-#   ggplot(manifest_POST_filt,aes(x=AX_BOR3,y=SA_mean))+
-#     geom_boxplot(aes(fill=AX_BOR3))+facet_grid(.~TRTGRP)+geom_point()+
-#     ylab(&quot;SA mean POST-treatment&quot;)+
-#     xlab(&quot;Response&quot;)+
-#     theme(legend.position = &quot;bottom&quot;,
-#           text = element_text(size = 20),
-#           axis.text.x=element_blank(),
-#           axis.title.x=element_blank())+
-#     guides(fill=guide_legend(title=&quot;Response&quot;))
-# } else {
-#   ggplot(manifest_POST_filt,aes(x=AX_BOR3,y=SA_mean))+
-#     geom_boxplot(aes(fill=AX_BOR3))+facet_grid(.~TRTGRP)+geom_point()+
-#     add_pvalue(wilcox_test_val, label = &quot;p={p.adj},d={cohens_d}&quot;, remove.bracket = FALSE,label.size=4)+
-#     ylab(&quot;SA mean POST-treatment&quot;)+
-#     xlab(&quot;Response&quot;)+
-#     theme(legend.position = &quot;bottom&quot;,
-#           text = element_text(size = 20),
-#           axis.text.x=element_blank(),
-#           axis.title.x=element_blank())+
-#     guides(fill=guide_legend(title=&quot;Response&quot;))
-# }
-# 
-# dev.off()
-
-# png(sprintf(&quot;%s/%s&quot;,figure_dir,&quot;SA_mean_POST_all.png&quot;),width = 480/1.5, height = 300/1.25)
-# 
-# wilcox_test_val &lt;- compare_means(SA_mean ~ AX_BOR3, p.adjust.method = &quot;BH&quot;, data=manifest_POST_filt)
-# wilcox_test_val$y.position &lt;- rep(max_POST_mean,3)+seq(from=1,to=3,by=1)
-# cohens_d &lt;- calculate_cohens_d(wilcox_test_val,c(),&quot;AX_BOR3&quot;,manifest_POST_filt)
-# wilcox_test_val$cohens_d &lt;- format(round(cohens_d$cohens_d, 2), nsmall = 2)
-# wilcox_test_val &lt;- wilcox_test_val %&gt;% dplyr::filter(p&lt;0.05)
-# if (nrow(wilcox_test_val)==0){
-#   ggplot(manifest_POST_filt,aes(x=AX_BOR3,y=SA_mean))+
-#     geom_boxplot(aes(fill=AX_BOR3))+geom_point()+
-#     ylab(&quot;SA mean POST-treatment&quot;)+
-#     xlab(&quot;Response&quot;)+
-#     theme(legend.position = &quot;right&quot;,
-#           text = element_text(size = 20),
-#           axis.text.x=element_blank(),
-#           axis.title.x=element_blank())+
-#     guides(fill=guide_legend(title=&quot;Response&quot;))
-# } else {
-#   ggplot(manifest_POST_filt,aes(x=AX_BOR3,y=SA_mean))+
-#     geom_boxplot(aes(fill=AX_BOR3))+geom_point()+
-#     ylab(&quot;SA mean POST-treatment&quot;)+
-#     xlab(&quot;Response&quot;)+
-#     theme(legend.position = &quot;right&quot;,
-#           text = element_text(size = 20),
-#           axis.text.x=element_blank(),
-#           axis.title.x=element_blank())+
-#     guides(fill=guide_legend(title=&quot;Response&quot;))
-# }
-# 
-# dev.off()
-
-# png(sprintf(&quot;%s/%s&quot;,figure_dir,&quot;PP_POST.png&quot;),width = 480, height = 300)
-# 
-# wilcox_test_val &lt;- compare_means(pseudo_purity ~ AX_BOR3, p.adjust.method = &quot;BH&quot;, data=manifest_POST_filt,group.by = &quot;TRTGRP&quot;)
-# max_pseudo_purity &lt;- max(manifest_POST_filt$pseudo_purity,na.rm=T)
-# wilcox_test_val$y.position &lt;- rep(rep(max_pseudo_purity,3)+seq(from=max_pseudo_purity/6,to=(max_pseudo_purity/6)*3,by=max_pseudo_purity/6),3)
-# cohens_d &lt;- calculate_cohens_d(wilcox_test_val,c(&quot;TRTGRP&quot;),&quot;AX_BOR3&quot;,manifest_POST_filt)
-# wilcox_test_val$cohens_d &lt;- format(round(cohens_d$cohens_d, 2), nsmall = 2)
-# wilcox_test_val &lt;- wilcox_test_val %&gt;% dplyr::filter(p.adj&lt;0.05)
-# if (nrow(wilcox_test_val)==0){
-#   ggplot(manifest_POST_filt,aes(x=AX_BOR3,y=pseudo_purity))+
-#     geom_boxplot(aes(fill=AX_BOR3))+geom_point()+facet_grid(.~TRTGRP)+
-#     ylab(&quot;Pseudo Purity POST-treatment&quot;)+
-#     xlab(&quot;Response&quot;)+
-#     theme(legend.position = &quot;bottom&quot;,
-#           text = element_text(size = 20),
-#           axis.text.x=element_blank(),
-#           axis.title.x=element_blank())+
-#     guides(fill=guide_legend(title=&quot;Response&quot;))
-# } else {
-#     ggplot(manifest_POST_filt,aes(x=AX_BOR3,y=pseudo_purity))+
-#     geom_boxplot(aes(fill=AX_BOR3))+geom_point()+facet_grid(.~TRTGRP)+
-#     add_pvalue(wilcox_test_val, label = &quot;p={p.adj},d={cohens_d}&quot;, remove.bracket = FALSE,label.size=4)+
-#     ylab(&quot;Pseudo Purity POST-treatment&quot;)+
-#     xlab(&quot;Response&quot;)+
-#     theme(legend.position = &quot;bottom&quot;,
-#           text = element_text(size = 20),
-#           axis.text.x=element_blank(),
-#           axis.title.x=element_blank())+
-#     guides(fill=guide_legend(title=&quot;Response&quot;))
-# }
-# 
-# dev.off()
-
-# png(sprintf(&quot;%s/%s&quot;,figure_dir,&quot;PP_POST_all.png&quot;),width = 480/1.5, height = 300/1.25)
-# 
-# wilcox_test_val &lt;- compare_means(pseudo_purity ~ AX_BOR3, p.adjust.method = &quot;BH&quot;, data=manifest_POST_filt)
-# max_pseudo_purity &lt;- max(manifest_POST_filt$pseudo_purity,na.rm=T)
-# wilcox_test_val$y.position &lt;- rep(max_pseudo_purity,3)+seq(from=max_pseudo_purity/6,to=(max_pseudo_purity/6)*3,by=max_pseudo_purity/6)
-# cohens_d &lt;- calculate_cohens_d(wilcox_test_val,c(),&quot;AX_BOR3&quot;,manifest_POST_filt)
-# wilcox_test_val$cohens_d &lt;- format(round(cohens_d$cohens_d, 2), nsmall = 2)
-# wilcox_test_val &lt;- wilcox_test_val %&gt;% dplyr::filter(p&lt;0.05)
-# if (nrow(wilcox_test_val)==0){
-#   ggplot(manifest_POST_filt,aes(x=AX_BOR3,y=pseudo_purity))+
-#     geom_boxplot(aes(fill=AX_BOR3))+geom_point()+
-#     ylab(&quot;Pseudo Purity POST-treatment&quot;)+
-#     xlab(&quot;Response&quot;)+
-#     theme(legend.position = &quot;right&quot;,
-#           text = element_text(size = 20),
-#           axis.text.x=element_blank(),
-#           axis.title.x=element_blank())+
-#     guides(fill=guide_legend(title=&quot;Response&quot;))
-# } else {
-#   ggplot(manifest_POST_filt,aes(x=AX_BOR3,y=pseudo_purity))+
-#     geom_boxplot(aes(fill=AX_BOR3))+geom_point()+
-#     add_pvalue(wilcox_test_val, label = &quot;p={p.format},d={cohens_d}&quot;, remove.bracket = FALSE,label.size=4)+
-#     ylab(&quot;Pseudo Purity POST-treatment&quot;)+
-#     xlab(&quot;Response&quot;)+
-#     theme(legend.position = &quot;right&quot;,
-#           text = element_text(size = 20),
-#           axis.text.x=element_blank(),
-#           axis.title.x=element_blank())+
-#     guides(fill=guide_legend(title=&quot;Response&quot;))
-# }
-# 
-# dev.off()
-
-# png(sprintf(&quot;%s/%s&quot;,figure_dir,&quot;IM_POST.png&quot;),width = 480, height = 300)
-# 
-# wilcox_test_val &lt;- compare_means(ImmuneScore ~ AX_BOR3, p.adjust.method = &quot;BH&quot;, data=manifest_POST_filt,group.by = &quot;TRTGRP&quot;)
-# max_imm &lt;- max(manifest_POST_filt$ImmuneScore,na.rm=T)
-# wilcox_test_val$y.position &lt;- rep(rep(max_imm,3)+seq(from=max_imm/6,to=(max_imm/6)*3,by=max_imm/6),3)
-# cohens_d &lt;- calculate_cohens_d(wilcox_test_val,c(&quot;TRTGRP&quot;),&quot;AX_BOR3&quot;,manifest_POST_filt)
-# wilcox_test_val$cohens_d &lt;- format(round(cohens_d$cohens_d, 2), nsmall = 2)
-# wilcox_test_val &lt;- wilcox_test_val %&gt;% dplyr::filter(p.adj&lt;0.05)
-# if (nrow(wilcox_test_val)==0){
-#   ggplot(manifest_POST_filt,aes(x=AX_BOR3,y=ImmuneScore))+
-#     geom_boxplot(aes(fill=AX_BOR3))+geom_point()+facet_grid(.~TRTGRP)+
-#     ylab(&quot;Imm. Score POST-treatment&quot;)+
-#     xlab(&quot;Response&quot;)+
-#     theme(legend.position = &quot;bottom&quot;,
-#           text = element_text(size = 20),
-#           axis.text.x=element_blank(),
-#           axis.title.x=element_blank())+
-#     guides(fill=guide_legend(title=&quot;Response&quot;))
-# } else {
-#   ggplot(manifest_POST_filt,aes(x=AX_BOR3,y=ImmuneScore))+
-#     geom_boxplot(aes(fill=AX_BOR3))+geom_point()+facet_grid(.~TRTGRP)+
-#     add_pvalue(wilcox_test_val, label = &quot;p={p.adj},d={cohens_d}&quot;, remove.bracket = FALSE,label.size=4)+
-#     ylab(&quot;Imm. Score POST-treatment&quot;)+
-#     xlab(&quot;Response&quot;)+
-#     theme(legend.position = &quot;bottom&quot;,
-#           text = element_text(size = 20),
-#           axis.text.x=element_blank(),
-#           axis.title.x=element_blank())+
-#     guides(fill=guide_legend(title=&quot;Response&quot;))
-# }
-# 
-# dev.off()
-
-# png(sprintf(&quot;%s/%s&quot;,figure_dir,&quot;IM_POST_all.png&quot;),width = 480/1.5, height = 300/1.25)
-# 
-# wilcox_test_val &lt;- compare_means(ImmuneScore ~ AX_BOR3, p.adjust.method = &quot;BH&quot;, data=manifest_POST_filt)
-# max_imm &lt;- max(manifest_POST_filt$ImmuneScore,na.rm=T)
-# wilcox_test_val$y.position &lt;- rep(max_imm,3)+seq(from=max_imm/6,to=(max_imm/6)*3,by=max_imm/6)
-# cohens_d &lt;- calculate_cohens_d(wilcox_test_val,c(),&quot;AX_BOR3&quot;,manifest_POST_filt)
-# wilcox_test_val$cohens_d &lt;- format(round(cohens_d$cohens_d, 2), nsmall = 2)
-# wilcox_test_val &lt;- wilcox_test_val %&gt;% dplyr::filter(p&lt;0.05)
-# if (nrow(wilcox_test_val)==0){
-# ggplot(manifest_POST_filt,aes(x=AX_BOR3,y=ImmuneScore))+
-#   geom_boxplot(aes(fill=AX_BOR3))+geom_point()+
-#   ylab(&quot;Imm. Score POST-treatment&quot;)+
-#   xlab(&quot;Response&quot;)+
-#   theme(legend.position = &quot;right&quot;,
-#         text = element_text(size = 20),
-#         axis.text.x=element_blank(),
-#         axis.title.x=element_blank())+
-#   guides(fill=guide_legend(title=&quot;Response&quot;))
-# } else {
-#   ggplot(manifest_POST_filt,aes(x=AX_BOR3,y=ImmuneScore))+
-#     geom_boxplot(aes(fill=AX_BOR3))+geom_point()+
-#     add_pvalue(wilcox_test_val, label = &quot;p={p.format},d={cohens_d}&quot;, remove.bracket = FALSE,label.size=4)+
-#     ylab(&quot;Imm. Score POST-treatment&quot;)+
-#     xlab(&quot;Response&quot;)+
-#     theme(legend.position = &quot;right&quot;,
-#           text = element_text(size = 20),
-#           axis.text.x=element_blank(),
-#           axis.title.x=element_blank())+
-#     guides(fill=guide_legend(title=&quot;Response&quot;))
-# }
-# 
-# dev.off()
-
-# png(sprintf(&quot;%s/%s&quot;,figure_dir,&quot;ST_POST.png&quot;),width = 480, height = 300)
-# 
-# wilcox_test_val &lt;- compare_means(StromalScore ~ AX_BOR3, p.adjust.method = &quot;BH&quot;, data=manifest_POST_filt,group.by = &quot;TRTGRP&quot;)
-# max_strom &lt;- max(manifest_POST_filt$StromalScore,na.rm=T)
-# wilcox_test_val$y.position &lt;- rep(rep(max_strom,3)+seq(from=max_strom/6,to=(max_strom/6)*3,by=max_strom/6),3)
-# cohens_d &lt;- calculate_cohens_d(wilcox_test_val,c(&quot;TRTGRP&quot;),&quot;AX_BOR3&quot;,manifest_POST_filt)
-# wilcox_test_val$cohens_d &lt;- format(round(cohens_d$cohens_d, 2), nsmall = 2)
-# wilcox_test_val &lt;- wilcox_test_val %&gt;% dplyr::filter(p.adj&lt;0.05)
-# if (nrow(wilcox_test_val)==0){
-#   ggplot(manifest_POST_filt,aes(x=AX_BOR3,y=StromalScore))+
-#     geom_boxplot(aes(fill=AX_BOR3))+geom_point()+facet_grid(.~TRTGRP)+
-#     ylab(&quot;Strom. Score POST-treatment&quot;)+
-#     xlab(&quot;Response&quot;)+
-#     theme(legend.position = &quot;bottom&quot;,
-#           text = element_text(size = 20),
-#           axis.text.x=element_blank(),
-#           axis.title.x=element_blank())+
-#     guides(fill=guide_legend(title=&quot;Response&quot;))
-# } else {
-#   ggplot(manifest_POST_filt,aes(x=AX_BOR3,y=StromalScore))+
-#     geom_boxplot(aes(fill=AX_BOR3))+geom_point()+facet_grid(.~TRTGRP)+
-#     add_pvalue(wilcox_test_val, label = &quot;p={p.adj},d={cohens_d}&quot;, remove.bracket = FALSE,label.size=4)+
-#     ylab(&quot;Strom. Score POST-treatment&quot;)+
-#     xlab(&quot;Response&quot;)+
-#     theme(legend.position = &quot;bottom&quot;,
-#           text = element_text(size = 20),
-#           axis.text.x=element_blank(),
-#           axis.title.x=element_blank())+
-#     guides(fill=guide_legend(title=&quot;Response&quot;))
-# }
-# 
-# dev.off()
-
-# png(sprintf(&quot;%s/%s&quot;,figure_dir,&quot;ST_POST_all.png&quot;),width = 480/1.5, height = 300/1.25)
-# 
-# wilcox_test_val &lt;- compare_means(StromalScore ~ AX_BOR3, p.adjust.method = &quot;BH&quot;, data=manifest_POST_filt)
-# max_strom &lt;- max(manifest_POST_filt$StromalScore,na.rm=T)
-# wilcox_test_val$y.position &lt;- rep(max_strom,3)+seq(from=max_strom/6,to=(max_strom/6)*3,by=max_strom/6)
-# cohens_d &lt;- calculate_cohens_d(wilcox_test_val,c(),&quot;AX_BOR3&quot;,manifest_POST_filt)
-# wilcox_test_val$cohens_d &lt;- format(round(cohens_d$cohens_d, 2), nsmall = 2)
-# wilcox_test_val &lt;- wilcox_test_val %&gt;% dplyr::filter(p&lt;0.05)
-# if (nrow(wilcox_test_val)==0){
-# ggplot(manifest_POST_filt,aes(x=AX_BOR3,y=StromalScore))+
-#   geom_boxplot(aes(fill=AX_BOR3))+geom_point()+
-#   ylab(&quot;Strom. Score POST-treatment&quot;)+
-#   xlab(&quot;Response&quot;)+
-#   theme(legend.position = &quot;right&quot;,
-#         text = element_text(size = 20),
-#         axis.text.x=element_blank(),
-#         axis.title.x=element_blank())+
-#   guides(fill=guide_legend(title=&quot;Response&quot;))
-# 
-# } else {
-#   ggplot(manifest_POST_filt,aes(x=AX_BOR3,y=StromalScore))+
-#     geom_boxplot(aes(fill=AX_BOR3))+geom_point()+
-#     add_pvalue(wilcox_test_val, label = &quot;p={p.format},d={cohens_d}&quot;, remove.bracket = FALSE,label.size=4)+
-#     ylab(&quot;Strom. Score POST-treatment&quot;)+
-#     xlab(&quot;Response&quot;)+
-#     theme(legend.position = &quot;right&quot;,
-#           text = element_text(size = 20),
-#           axis.text.x=element_blank(),
-#           axis.title.x=element_blank())+
-#     guides(fill=guide_legend(title=&quot;Response&quot;))
-# }
-# 
-# dev.off()
-
-# png(sprintf(&quot;%s/%s&quot;,figure_dir,&quot;SA_mean_PP_POST_all.png&quot;),width = 480, height = 300)
-# 
-# ggplot(manifest_POST,aes(x=pseudo_purity,y=SA_mean))+geom_point()+
-#   stat_cor(method = &quot;kendall&quot;,label.x.npc=&quot;middle&quot;,label.y.npc=&quot;top&quot;,size = 5)+
-#   geom_smooth(method=&quot;lm&quot;,se=F)+
-#   theme(text = element_text(size = 20))
-# 
-# dev.off()
-
-# png(sprintf(&quot;%s/%s&quot;,figure_dir,&quot;SA_mean_PP_POST.png&quot;),width = 480, height = 300)
-# 
-# ggplot(manifest_POST,aes(x=pseudo_purity,y=SA_mean))+geom_point()+
-#   stat_cor(method = &quot;kendall&quot;,label.x.npc=&quot;left&quot;,label.y.npc=&quot;top&quot;,size = 4)+
-#   geom_smooth(method=&quot;lm&quot;,se=F)+facet_grid(AX_BOR3~TRTGRP)+
-#   theme(text = element_text(size = 20))
-# 
-# dev.off()
-
-png(sprintf(&quot;%s/%s&quot;,figure_dir,&quot;Fig5A.png&quot;),width = 480, height = 300)
+<pre class="r"><code>png(sprintf(&quot;%s/%s&quot;,figure_dir,&quot;Fig5A.png&quot;),width = 480, height = 300)
 
 ggplot(manifest_POST,aes(x=pseudo_purity,y=SA_mean))+geom_point()+
   stat_cor(method = &quot;kendall&quot;,label.x.npc=&quot;left&quot;,label.y.npc=&quot;top&quot;,size = 5)+
@@ -4110,68 +3407,6 @@ ggplot(manifest_POST,aes(x=pseudo_purity,y=SA_mean))+geom_point()+
 <pre class="r"><code>dev.off()</code></pre>
 <pre><code>## quartz_off_screen 
 ##                 2</code></pre>
-<pre class="r"><code># png(sprintf(&quot;%s/%s&quot;,figure_dir,&quot;SA_mean_IM_POST_all.png&quot;),width = 480, height = 300)
-# 
-# ggplot(manifest_POST,aes(x=ImmuneScore,y=SA_mean))+geom_point()+
-#   stat_cor(method = &quot;kendall&quot;,label.x.npc=&quot;middle&quot;,label.y.npc=&quot;top&quot;,size = 5)+
-#   geom_smooth(method=&quot;lm&quot;,se=F)+
-#   theme(text = element_text(size = 20))
-# 
-# dev.off()
-
-# png(sprintf(&quot;%s/%s&quot;,figure_dir,&quot;SA_mean_IM_POST.png&quot;),width = 480, height = 300)
-# 
-# ggplot(manifest_POST,aes(x=ImmuneScore,y=SA_mean))+geom_point()+
-#   stat_cor(method = &quot;kendall&quot;,label.x.npc=&quot;left&quot;,label.y.npc=&quot;top&quot;,size = 4)+
-#   geom_smooth(method=&quot;lm&quot;,se=F)+facet_grid(AX_BOR3~TRTGRP)+
-#   theme(text = element_text(size = 20))
-# 
-# dev.off()
-
-# png(sprintf(&quot;%s/%s&quot;,figure_dir,&quot;SA_mean_IM_POST_resp.png&quot;),width = 480, height = 300)
-# 
-# ggplot(manifest_POST,aes(x=ImmuneScore,y=SA_mean))+geom_point()+
-#   stat_cor(method = &quot;kendall&quot;,label.x.npc=&quot;left&quot;,label.y.npc=&quot;top&quot;,size = 5)+
-#   geom_smooth(method=&quot;lm&quot;,se=F)+facet_grid(AX_BOR3~.)+
-#   theme(text = element_text(size = 20))
-# 
-# dev.off()
-
-# png(sprintf(&quot;%s/%s&quot;,figure_dir,&quot;SA_mean_ST_POST_all.png&quot;),width = 480, height = 300)
-# 
-# ggplot(manifest_POST,aes(x=StromalScore,y=SA_mean))+geom_point()+
-#   stat_cor(method = &quot;kendall&quot;,label.x.npc=&quot;middle&quot;,label.y.npc=&quot;top&quot;,size = 5)+
-#   geom_smooth(method=&quot;lm&quot;,se=F)+
-#   theme(text = element_text(size = 20))
-# 
-# dev.off()
-
-# png(sprintf(&quot;%s/%s&quot;,figure_dir,&quot;SA_mean_ST_POST.png&quot;),width = 480, height = 300)
-# 
-# ggplot(manifest_POST,aes(x=StromalScore,y=SA_mean))+geom_point()+
-#   stat_cor(method = &quot;kendall&quot;,label.x.npc=&quot;left&quot;,label.y.npc=&quot;top&quot;,size = 5)+
-#   geom_smooth(method=&quot;lm&quot;,se=F)+facet_grid(AX_BOR3~TRTGRP)+
-#   theme(text = element_text(size = 20))
-# 
-# dev.off()
-
-# png(sprintf(&quot;%s/%s&quot;,figure_dir,&quot;SA_mean_ST_POST_resp.png&quot;),width = 480, height = 300)
-# 
-# ggplot(manifest_POST,aes(x=StromalScore,y=SA_mean))+geom_point()+
-#   stat_cor(method = &quot;kendall&quot;,label.x.npc=&quot;left&quot;,label.y.npc=&quot;top&quot;,size = 5)+
-#   geom_smooth(method=&quot;lm&quot;,se=F)+facet_grid(AX_BOR3~.)+
-#   theme(text = element_text(size = 20))
-# 
-# dev.off()
-
-# png(sprintf(&quot;%s/%s&quot;,figure_dir,&quot;PP_TP_POST_all.png&quot;),width = 480, height = 300)
-# 
-# ggplot(manifest_POST,aes(x=tumor_purity,y=pseudo_purity))+geom_point()+
-#   stat_cor(method = &quot;kendall&quot;,label.x.npc=&quot;middle&quot;,label.y.npc=&quot;top&quot;,size = 5)+
-#   geom_smooth(method=&quot;lm&quot;,se=F)+
-#   theme(text = element_text(size = 20))
-# 
-# dev.off()</code></pre>
 </div>
 <div id="splicing-antigenicity-per-event-and-sample" class="section level1">
 <h1>Splicing antigenicity per event and sample</h1>
@@ -4314,7 +3549,7 @@ ggplot(medians_sorted,aes(x=response,y=log10(median)))+
         text = element_text(size = 20),
         axis.text.x=element_blank(),
         axis.title.x=element_blank())+
-  guides(fill=guide_legend(title=&quot;Response&quot;))+
+  guides(fill=guide_legend(title=&quot;response&quot;))+
   ylab(&quot;log10(Junc. SA norm)&quot;)+
   ylim(c(0,log10(max_median)+1.5))+
   geom_hline(yintercept = 3)
@@ -4341,7 +3576,7 @@ ggplot(medians_sorted,aes(x=response,y=log10(median)))+
         text = element_text(size = 20),
         axis.text.x=element_blank(),
         axis.title.x=element_blank())+
-  guides(fill=guide_legend(title=&quot;Response&quot;))+
+  guides(fill=guide_legend(title=&quot;response&quot;))+
   ylab(&quot;log10(Junc. SA norm)&quot;)+
   ylim(c(0,log10(max_median)+1.5))+
   geom_hline(yintercept = 3)
@@ -4349,16 +3584,18 @@ ggplot(medians_sorted,aes(x=response,y=log10(median)))+
 dev.off()</code></pre>
 <pre><code>## quartz_off_screen 
 ##                 2</code></pre>
-<pre class="r"><code>png(sprintf(&quot;%s/%s&quot;,figure_dir,&quot;Fig6C.png&quot;),width = 480/1.5, height = 300)
+<pre class="r"><code>png(sprintf(&quot;%s/%s&quot;,figure_dir,&quot;Fig6C.png&quot;),width = 480, height = 450)
 
 medians_sorted &lt;- medians
-medians_sorted &lt;- medians_sorted %&gt;% dplyr::filter(response %in% c(&quot;PD&quot;,&quot;baseline&quot;))
-medians_wilcox_filt &lt;- medians_wilcox %&gt;% dplyr::filter(group1 == &quot;PD&quot; &amp; group2 == &quot;baseline&quot;)
-medians_sorted$response &lt;- factor(medians_sorted$response,levels=c(&quot;PD&quot;,&quot;baseline&quot;))
+medians_sorted$response &lt;- factor(medians_sorted$response,levels=c(&quot;CRPR&quot;,&quot;SD&quot;,&quot;PD&quot;,&quot;baseline&quot;))
 max_median &lt;- max(medians$median)
+medians_wilcox_filt &lt;- medians_wilcox %&gt;% dplyr::filter(group2 == &quot;baseline&quot;)
+medians_wilcox_filt$y.position &lt;- rep(log10(max_median),3)+c(0.5,1.2,1.9)
+median_baseline &lt;- log10(as.numeric(medians_sorted %&gt;% dplyr::filter(response==&quot;baseline&quot;) %&gt;% summarise(median=median(median))))
+
 ggplot(medians_sorted,aes(x=response,y=log10(median)))+
-  geom_boxplot(aes(fill=response))+geom_line(aes(group=juncs),alpha=0.05)+
-  add_pvalue(medians_wilcox_filt, label = &quot;{p.signif},d={cohens_d}&quot;, remove.bracket = FALSE,label.size=6,y.position=log10(max_median)+1)+
+  geom_boxplot(aes(fill=response))+
+  add_pvalue(medians_wilcox_filt, label = &quot;{p.signif},d={cohens_d}&quot;, remove.bracket = FALSE,label.size=6)+
   scale_color_manual(values = c(&quot;CRPR&quot; = &quot;#F8766D&quot;,
                               &quot;SD&quot;=&quot;#00BA38&quot;,
                               &quot;PD&quot;=&quot;#619CFF&quot;,
@@ -4368,12 +3605,95 @@ ggplot(medians_sorted,aes(x=response,y=log10(median)))+
         text = element_text(size = 20),
         axis.text.x=element_blank(),
         axis.title.x=element_blank())+
-  guides(fill=guide_legend(title=&quot;Response&quot;))+
+  guides(fill=guide_legend(title=&quot;response&quot;))+
   ylab(&quot;log10(Junc. SA norm)&quot;)+
-  ylim(c(0,log10(max_median)+1.5))+
-  geom_hline(yintercept = 3)
+  ylim(c(0,log10(max_median)+3.5))+
+  geom_hline(yintercept = median_baseline)
 
 dev.off()</code></pre>
+<pre><code>## quartz_off_screen 
+##                 2</code></pre>
+</div>
+</div>
+<div id="splice-junction-heatmaps" class="section level1">
+<h1>Splice Junction Heatmaps</h1>
+<pre class="r"><code>CRPR_filt &lt;- CRPR_POST[CRPR_POST %in% manifest_POST_filt_filt$Sample]
+SA_per_junction_filt_ordered &lt;- SA_per_junction_filt[,c(CRPR_filt,
+                                                        SD_POST,
+                                                        PD_POST,
+                                                        PRE_samples)]
+sample_type &lt;- data.frame(sample=c(CRPR_filt,SD_POST,PD_POST,PRE_samples),
+                          response=c(rep(&quot;CRPR&quot;,length(CRPR_filt)),
+                                     rep(&quot;SD&quot;,length(SD_POST)),
+                                     rep(&quot;PD&quot;,length(PD_POST)),
+                                     rep(&quot;baseline&quot;,length(PRE_samples))))
+sample_type$response&lt;-factor(sample_type$response,levels=c(&quot;CRPR&quot;,&quot;SD&quot;,&quot;PD&quot;,&quot;baseline&quot;))
+
+SA_per_junction_zscore &lt;- as.matrix(t(apply(SA_per_junction_filt_ordered[apply(SA_per_junction_filt_ordered,1,sd)&gt;0,],1,scale)))
+
+png(sprintf(&quot;%s/%s&quot;,figure_dir,&quot;Fig6D.png&quot;),width = 600, height = 520)
+
+Heatmap(as.matrix(SA_per_junction_zscore),
+        cluster_columns=F,
+        name=&quot;z-score&quot;,
+        clustering_method_rows=&quot;ward.D2&quot;,
+        clustering_method_columns=&quot;ward.D2&quot;,
+        top_annotation = HeatmapAnnotation(response = sample_type$response,
+                                           col = list(response = c(&quot;CRPR&quot; = &quot;#F8766D&quot;,
+                                                                 &quot;SD&quot;=&quot;#00BA38&quot;,
+                                                                 &quot;PD&quot;=&quot;#619CFF&quot;,
+                                                                 &quot;baseline&quot;=&quot;wheat&quot;))),
+        show_row_names = F,
+        show_column_names = F,
+        row_title=&quot;Junction Splicing Antigenicity, Purity Normalized&quot;)
+
+dev.off()</code></pre>
+<pre><code>## quartz_off_screen 
+##                 2</code></pre>
+<pre class="r"><code>SA_per_junction_filt_linear &lt;- data.frame(SA=NA,response=NA,sample=NA)
+
+for (col_val in seq(ncol(SA_per_junction_filt_ordered))){
+  SA_vals=SA_per_junction_filt_ordered[,col_val]
+  response_vals &lt;- rep(sample_type$response[col_val],length(SA_vals))
+  sample_vals &lt;- rep(sample_type$sample[col_val],length(SA_vals))
+  SA_per_junction_filt_linear &lt;- rbind(SA_per_junction_filt_linear,data.frame(SA=SA_vals,
+                                         response=response_vals,
+                                         sample=sample_vals))
+}
+SA_per_junction_filt_linear &lt;- SA_per_junction_filt_linear[seq(2,nrow(SA_per_junction_filt_linear)),]
+
+png(sprintf(&quot;%s/%s&quot;,figure_dir,&quot;FigS6.png&quot;),width = 1500, height = 700)
+
+SA_per_junction_filt_linear$log10_SA &lt;- log10(SA_per_junction_filt_linear$SA)
+median_baseline &lt;- SA_per_junction_filt_linear %&gt;% dplyr::filter(response==&quot;baseline&quot;) %&gt;% group_by(sample) %&gt;% summarise(median=median(log10_SA)) %&gt;% summarise(median=median(median))
+median_CRPR &lt;- SA_per_junction_filt_linear %&gt;% dplyr::filter(response==&quot;CRPR&quot;) %&gt;% group_by(sample) %&gt;% summarise(median=median(log10_SA)) %&gt;% summarise(median=median(median))
+median_SD &lt;- SA_per_junction_filt_linear %&gt;% dplyr::filter(response==&quot;SD&quot;) %&gt;% group_by(sample) %&gt;% summarise(median=median(log10_SA)) %&gt;% summarise(median=median(median))
+median_PD &lt;- SA_per_junction_filt_linear %&gt;% dplyr::filter(response==&quot;PD&quot;) %&gt;% group_by(sample) %&gt;% summarise(median=median(log10_SA)) %&gt;% summarise(median=median(median))
+
+SA_per_junction_filt_linear$response &lt;- factor(SA_per_junction_filt_linear$response,levels=c(&quot;CRPR&quot;,&quot;SD&quot;,&quot;PD&quot;,&quot;baseline&quot;))
+ggplot(SA_per_junction_filt_linear,aes(x=response,y=log10_SA,fill=response,group=sample))+
+  geom_boxplot()+scale_fill_manual(values=c(&quot;CRPR&quot;=&quot;#F8766D&quot;,&quot;SD&quot;=&quot;#00BA38&quot;,&quot;PD&quot;=&quot;#619CFF&quot;,&quot;baseline&quot;=&quot;wheat&quot;))+
+  geom_hline(yintercept = (as.numeric(median_baseline)),color=&quot;black&quot;,size=1.5*1.5)+
+  geom_hline(yintercept = (as.numeric(median_baseline)),color=&quot;wheat&quot;,size=1.5)+
+  geom_hline(yintercept = (as.numeric(median_CRPR)),color=&quot;black&quot;,size=1.5*1.5)+
+  geom_hline(yintercept = (as.numeric(median_CRPR)),color=&quot;#F8766D&quot;,size=1.5)+
+  geom_hline(yintercept = (as.numeric(median_SD)),color=&quot;black&quot;,size=1.5*1.5)+
+  geom_hline(yintercept = (as.numeric(median_SD)),color=&quot;#00BA38&quot;,size=1.5)+
+  geom_hline(yintercept = (as.numeric(median_PD)),color=&quot;black&quot;,size=1.5*1.5)+
+  geom_hline(yintercept = (as.numeric(median_PD)),color=&quot;#619CFF&quot;,size=1.5)+
+  facet_zoom(ylim=c((as.numeric(median_PD)),
+                  (as.numeric(median_CRPR))))+
+  theme(legend.position = &quot;bottom&quot;,
+        text = element_text(size = 20),
+        axis.text.x=element_blank(),
+        axis.title.x=element_blank())+
+  ylab(&quot;log10(SA_norm)&quot;)</code></pre>
+<pre><code>## Warning: Using `size` aesthetic for lines was deprecated in ggplot2 3.4.0.
+## ℹ Please use `linewidth` instead.
+## This warning is displayed once every 8 hours.
+## Call `lifecycle::last_lifecycle_warnings()` to see where this warning was
+## generated.</code></pre>
+<pre class="r"><code>dev.off()</code></pre>
 <pre><code>## quartz_off_screen 
 ##                 2</code></pre>
 <pre class="r"><code>print(sessionInfo())</code></pre>
@@ -4393,17 +3713,18 @@ dev.off()</code></pre>
 ## [8] base     
 ## 
 ## other attached packages:
-##  [1] estimate_1.0.13       gridExtra_2.3         effectsize_0.8.3     
-##  [4] ggsignif_0.6.4        rstatix_0.7.2         ggprism_1.0.4        
-##  [7] ggrepel_0.9.3         ggpubr_0.6.0          ComplexHeatmap_2.14.0
-## [10] rjson_0.2.21          stringr_1.5.0         dplyr_1.1.0          
-## [13] DT_0.27               ggplot2_3.4.1         readxl_1.4.2         
+##  [1] ggforce_0.4.1         estimate_1.0.13       gridExtra_2.3        
+##  [4] effectsize_0.8.3      ggsignif_0.6.4        rstatix_0.7.2        
+##  [7] ggprism_1.0.4         ggrepel_0.9.3         ggpubr_0.6.0         
+## [10] ComplexHeatmap_2.14.0 rjson_0.2.21          stringr_1.5.0        
+## [13] dplyr_1.1.0           DT_0.27               ggplot2_3.4.1        
+## [16] readxl_1.4.2         
 ## 
 ## loaded via a namespace (and not attached):
 ##  [1] nlme_3.1-162        matrixStats_0.63.0  insight_0.19.0     
 ##  [4] doParallel_1.0.17   RColorBrewer_1.1-3  tools_4.2.3        
 ##  [7] backports_1.4.1     bslib_0.4.2         utf8_1.2.3         
-## [10] R6_2.5.1            BiocGenerics_0.44.0 mgcv_1.8-42        
+## [10] R6_2.5.1            mgcv_1.8-42         BiocGenerics_0.44.0
 ## [13] colorspace_2.1-0    GetoptLong_1.0.5    withr_2.5.0        
 ## [16] tidyselect_1.2.0    compiler_4.2.3      cli_3.6.0          
 ## [19] labeling_0.4.2      bayestestR_0.13.0   sass_0.4.5         
@@ -4416,17 +3737,17 @@ dev.off()</code></pre>
 ## [40] parameters_0.20.2   Rcpp_1.0.10         munsell_0.5.0      
 ## [43] S4Vectors_0.36.2    fansi_1.0.4         abind_1.4-5        
 ## [46] lifecycle_1.0.3     stringi_1.7.12      yaml_2.3.7         
-## [49] carData_3.0-5       parallel_4.2.3      crayon_1.5.2       
-## [52] lattice_0.20-45     splines_4.2.3       circlize_0.4.15    
-## [55] knitr_1.42          pillar_1.8.1        codetools_0.2-19   
-## [58] stats4_4.2.3        glue_1.6.2          evaluate_0.20      
-## [61] png_0.1-8           vctrs_0.5.2         foreach_1.5.2      
-## [64] cellranger_1.1.0    gtable_0.3.1        purrr_1.0.1        
-## [67] tidyr_1.3.0         clue_0.3-64         datawizard_0.6.5   
-## [70] cachem_1.0.7        xfun_0.37           broom_1.0.4        
-## [73] tibble_3.2.0        iterators_1.0.14    IRanges_2.32.0     
-## [76] cluster_2.1.4       ellipsis_0.3.2</code></pre>
-</div>
+## [49] carData_3.0-5       MASS_7.3-58.2       parallel_4.2.3     
+## [52] crayon_1.5.2        lattice_0.20-45     splines_4.2.3      
+## [55] circlize_0.4.15     knitr_1.42          pillar_1.8.1       
+## [58] codetools_0.2-19    stats4_4.2.3        glue_1.6.2         
+## [61] evaluate_0.20       png_0.1-8           vctrs_0.5.2        
+## [64] tweenr_2.0.2        foreach_1.5.2       cellranger_1.1.0   
+## [67] gtable_0.3.1        purrr_1.0.1         polyclip_1.10-4    
+## [70] tidyr_1.3.0         clue_0.3-64         datawizard_0.6.5   
+## [73] cachem_1.0.7        xfun_0.37           broom_1.0.4        
+## [76] tibble_3.2.0        iterators_1.0.14    IRanges_2.32.0     
+## [79] cluster_2.1.4       ellipsis_0.3.2</code></pre>
 </div>
 
 
